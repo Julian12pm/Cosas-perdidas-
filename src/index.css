@@ -1,0 +1,134 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --color-brand-50: #fef3e2;
+  --color-brand-100: #fde4b8;
+  --color-brand-200: #fbd08a;
+  --color-brand-300: #f9b95c;
+  --color-brand-400: #f7a738;
+  --color-brand-500: #f59518;
+  --color-brand-600: #e68512;
+  --color-brand-700: #d1710d;
+  --color-brand-800: #b55d09;
+  --color-brand-900: #8c4706;
+  --color-surface-900: #0f1219;
+  --color-surface-800: #161b27;
+  --color-surface-700: #1e2538;
+  --color-surface-600: #2a3349;
+  --color-surface-500: #3d4a66;
+  --color-surface-400: #5a6a8a;
+  --color-surface-300: #8595b5;
+  --color-surface-200: #b3c1d9;
+  --color-surface-100: #dce4f0;
+  --color-surface-50: #f0f3f8;
+  --color-pin-red: #ef4444;
+  --color-pin-red-glow: #f87171;
+  --color-pin-green: #22c55e;
+  --color-pin-green-glow: #4ade80;
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+}
+
+@keyframes pin-drop {
+  0% {
+    transform: translateY(-40px) scale(0.3);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(4px) scale(1.1);
+    opacity: 1;
+  }
+  80% {
+    transform: translateY(-2px) scale(0.95);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes pin-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+}
+
+@keyframes pin-pulse-green {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+  }
+}
+
+@keyframes modal-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.9) translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes backdrop-in {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+@keyframes success-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(0); opacity: 0; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+@utility animate-pin-drop {
+  animation: pin-drop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@utility animate-pin-pulse {
+  animation: pin-pulse 2s ease-in-out infinite;
+}
+
+@utility animate-pin-pulse-green {
+  animation: pin-pulse-green 2s ease-in-out infinite;
+}
+
+@utility animate-modal-in {
+  animation: modal-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@utility animate-backdrop-in {
+  animation: backdrop-in 0.2s ease-out forwards;
+}
+
+@utility animate-shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+@utility animate-success-pop {
+  animation: success-pop 0.6s ease-in-out forwards;
+}
+
+@utility animate-float {
+  animation: float 3s ease-in-out infinite;
+}
