@@ -1,3 +1,7 @@
+// Longitud de la clave de liberación: el dueño del objeto la dicta al
+// estudiante que lo tiene físicamente. Seis dígitos = un millón de combinaciones.
+export const RELEASE_KEY_LENGTH = 6;
+
 // Datos ficticios iniciales de objetos perdidos/encontrados en el campus
 export const MOCK_PINS = [
   {
@@ -9,7 +13,7 @@ export const MOCK_PINS = [
     description: 'Olvidé mi laptop en el edificio E, segundo piso, aula E3.',
     reportedBy: 'Carlos M.',
     timestamp: '2026-09-28T14:30:00',
-    unlockCode: '1234',
+    unlockCode: '483921',
     zone: 'Edificio E - Aulas',
   },
   {
@@ -21,7 +25,7 @@ export const MOCK_PINS = [
     description: 'Encontrada en banca cerca de la cafetería.',
     reportedBy: 'Ana L.',
     timestamp: '2026-09-29T09:15:00',
-    unlockCode: '1234',
+    unlockCode: '726104',
     zone: 'Cafetería',
   },
   {
@@ -33,7 +37,7 @@ export const MOCK_PINS = [
     description: 'La dejé en las gradas de la pista de atletismo durante el entrenamiento.',
     reportedBy: 'Miguel R.',
     timestamp: '2026-09-29T17:45:00',
-    unlockCode: '9012',
+    unlockCode: '550183',
     zone: 'Pista de Atletismo',
   },
   {
@@ -45,14 +49,26 @@ export const MOCK_PINS = [
     description: 'Encontrada en estacionamiento. No se revela el nombre completo.',
     reportedBy: 'Laura G.',
     timestamp: '2026-09-29T12:00:00',
-    unlockCode: '3456',
+    unlockCode: '319047',
     zone: 'Estacionamiento 5',
   },
 ];
 
-// Generar un código aleatorio de 4 dígitos
+// Genera una clave de liberación aleatoria y uniforme.
+// Math.random no sirve para un secreto: usa el generador criptográfico del
+// navegador y descarta los valores sesgados para mantener la distribución.
 export function generateUnlockCode() {
-  return String(Math.floor(1000 + Math.random() * 9000));
+  const limit = 10 ** RELEASE_KEY_LENGTH;
+  const ceiling = Math.floor(0xffffffff / limit) * limit;
+  const buffer = new Uint32Array(1);
+
+  let value;
+  do {
+    crypto.getRandomValues(buffer);
+    value = buffer[0];
+  } while (value >= ceiling);
+
+  return String(value % limit).padStart(RELEASE_KEY_LENGTH, '0');
 }
 
 // Formatear fecha legible
