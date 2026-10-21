@@ -242,6 +242,17 @@ One coordinate space: the croquis' `viewBox` (1600 × 1000 user units). Pins, zo
 | T19 | S3, S10    | Accessibility pass: dialogs, focus trap, labels, reduced motion, keyboard map operation                                                               | inline | pending | —                                                                                                                                                                                           |
 | T20 | S13        | README refresh with the final architecture and commands                                                                                               | inline | done    | `README.md` rewritten: product, stack, commands, coordinate model, conventions, license                                                                                                     |
 
+## Work units landed (branch `feature/objetos-perdidas-itm`)
+
+| Commit    | Work unit                                        | Tasks                  |
+| --------- | ------------------------------------------------ | ---------------------- |
+| `0d723e4` | chore(toolchain): migrate to Vite+ with pnpm     | T1                     |
+| `e3b4803` | style: apply Oxfmt formatting                    | T1 (formatter basline) |
+| `370989a` | chore(repo): add tsconfig, license and ODD plan  | T2, T3                 |
+| `8cf5e61` | feat(map): add letterbox-aware geometry helpers  | T5, T6 (partial)       |
+| `37d1efe` | fix(app): anchor pins to artwork, drop demo code | T4, T12 (partial)      |
+| `8ead4a2` | docs: document the project in the README         | T13, T20               |
+
 ## Log
 
 **L1 — 2026-10-21 — Product concept (verbatim):**
