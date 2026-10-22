@@ -51,8 +51,8 @@ Checks: `scripts/structure-check.mjs` (lightpanda) must still show `listbox` + 9
 
 ### S6 — The crop is a coordinate migration, done deliberately
 
-Scope: dropping the raster's legend column (x 700..846) moves the artwork's origin. Every artefact that carries artwork coordinates must move with it: the generated catalogue, `MAP_IMAGE`, the stored `map_x`/`map_y` and the API's seeded `zones` table.
-Acceptance: the catalogue is regenerated in the new space; `zones.test.js` asserts the new bounds; the API re-seeds (or a migration re-seeds) the `zones` table; no stored coordinate points at the old origin.
+Scope: dropping the raster's legend column (x 700..846) shrinks the artwork's canvas from 846 to 700 px wide. The crop starts at x = 0, so the ORIGIN DOES NOT MOVE: every existing coordinate stays valid and only the canvas width changes. **This must be verified, not assumed** — if any zone reaches past x = 700, the crop has to be wider and the migration becomes a real origin shift.
+Acceptance: the catalogue is regenerated with the new canvas width; `zones.test.js` asserts the new bounds and that no zone crosses the canvas edge; the API re-seeds (or a migration re-seeds) the `zones` table; the stored `map_x`/`map_y` stay in the same space.
 Checks: the unit tests of the catalogue; a reseed note in the task's handoff; the journey's geometry assertions.
 
 ### S7 — The shapes are derived, never traced by hand
