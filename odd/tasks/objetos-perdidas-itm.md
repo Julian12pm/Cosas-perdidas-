@@ -242,30 +242,32 @@ The hand-drawn `src/CampusSVG.jsx` was measured against the official plan and is
 | T17 | S15        | Photos: upload validation, `sharp` re-encode without metadata, storage                                                                                | inline | pending | —                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | T18 | S15        | CI: `vp check` + `vp test` + `vp build` on every push; Playwright journey                                                                             | inline | pending | —                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | T19 | S3, S10    | Accessibility pass: dialogs, focus trap, labels, reduced motion, keyboard map operation                                                               | inline | partial | Diálogo con semántica aria-modal, foco atrapado y restaurado, Escape; mapa con listbox espacial (un solo tab stop, flechas, aria-activedescendant, región viva); anillos de foco visibles en los 33 controles; texto apagado 5.99:1, placeholder 4.67:1, glifo del pin 5.02:1, anillo de foco 7.48:1; `prefers-reduced-motion` respetado. **Pendiente**: los estados de carga/vacío/error de cada pantalla y el ajuste fino de móvil |
-| T22 | S1, S9     | Give every screen its states: loading, empty, error, offline and session expired; adapt the croquis and the forms to a 390 px phone                   | inline | pending | —                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| T22 | S1, S9     | Give every screen its states: loading, empty, error, offline and session expired; adapt the croquis and the forms to a 390 px phone                   | inline | done    | Los cinco estados en cada pantalla con un lenguaje visual compartido (`StateMessage.jsx`), la adaptación a 390 px (targets de 44 px, lista del buscador viewport-aware, modal que esquiva el teclado con `visualViewport`), y los `data-testid` para la prueba de navegador                                                                                                                                                          |
 | T21 | S1, S5, S6 | Wire the web app to the API: institutional login, real pins from `GET /reports`, the claim inbox and the contact card replace the mock data           | inline | partial | La pantalla de login ya hace POST a `/auth/magic-link` cuando hay `VITE_API_URL` y cae en modo demostración si no; el payload público ya trae `map_x`/`map_y` para que el mapa placing pines reales. **Pendiente**: que los pines y los reclamos vengan de la API en vez de `MOCK_PINS`                                                                                                                                              |
 | T20 | S13        | README refresh with the final architecture and commands                                                                                               | inline | done    | `README.md` rewritten: product, stack, commands, coordinate model, conventions, license                                                                                                                                                                                                                                                                                                                                              |
 
 ## Work units landed (branch `feature/objetos-perdidas-itm`)
 
-| Commit    | Work unit                                              | Tasks                   |
-| --------- | ------------------------------------------------------ | ----------------------- |
-| `0d723e4` | chore(toolchain): migrate to Vite+ with pnpm           | T1                      |
-| `e3b4803` | style: apply Oxfmt formatting                          | T1 (formatter basline)  |
-| `370989a` | chore(repo): add tsconfig, license and ODD plan        | T2, T3                  |
-| `8cf5e61` | feat(map): add letterbox-aware geometry helpers        | T5, T6 (partial)        |
-| `37d1efe` | fix(app): anchor pins to artwork, drop demo code       | T4, T12 (partial)       |
-| `8ead4a2` | docs: document the project in the README               | T13, T20                |
-| `c77b306` | feat(map): extract the campus zone catalogue           | T7                      |
-| `ebbd9e0` | feat(map): add polygon helpers                         | T7, T8                  |
-| `938f775` | feat(map): make the croquis addressable                | T8                      |
-| `585bd8c` | docs(svg): mark the unused croquis draft               | T7b (context)           |
-| `1954318` | feat(api): schema, domain rules and the PGlite harness | T9, T12, T15            |
-| `70b97f4` | feat(api): HTTP API, institutional login, scheduler    | T10, T11, T13, T14, T16 |
-| `70a438f` | docs: document the API in the README                   | T13                     |
-| `cee4ba9` | feat(ui): accessible dialog and the zoomable croquis   | T19                     |
-| `8d6de7d` | feat(ui): seven blockers closed, token layer rebuilt   | T19, T21                |
-| `e58328b` | feat(api): publish the pin coordinates                 | T21                     |
+| Commit    | Work unit                                                         | Tasks                   |
+| --------- | ----------------------------------------------------------------- | ----------------------- |
+| `0d723e4` | chore(toolchain): migrate to Vite+ with pnpm                      | T1                      |
+| `e3b4803` | style: apply Oxfmt formatting                                     | T1 (formatter basline)  |
+| `370989a` | chore(repo): add tsconfig, license and ODD plan                   | T2, T3                  |
+| `8cf5e61` | feat(map): add letterbox-aware geometry helpers                   | T5, T6 (partial)        |
+| `37d1efe` | fix(app): anchor pins to artwork, drop demo code                  | T4, T12 (partial)       |
+| `8ead4a2` | docs: document the project in the README                          | T13, T20                |
+| `c77b306` | feat(map): extract the campus zone catalogue                      | T7                      |
+| `ebbd9e0` | feat(map): add polygon helpers                                    | T7, T8                  |
+| `938f775` | feat(map): make the croquis addressable                           | T8                      |
+| `585bd8c` | docs(svg): mark the unused croquis draft                          | T7b (context)           |
+| `1954318` | feat(api): schema, domain rules and the PGlite harness            | T9, T12, T15            |
+| `70b97f4` | feat(api): HTTP API, institutional login, scheduler               | T10, T11, T13, T14, T16 |
+| `70a438f` | docs: document the API in the README                              | T13                     |
+| `cee4ba9` | feat(ui): accessible dialog and the zoomable croquis              | T19                     |
+| `8d6de7d` | feat(ui): seven blockers closed, token layer rebuilt              | T19, T21                |
+| `e58328b` | feat(api): publish the pin coordinates                            | T21                     |
+| `ea72c5a` | feat(ui): the missing states, the phone layout and the test hooks | T22                     |
+| `0733bc5` | test(ui): the browser journey with the system Chromium            | T18 (partial)           |
 
 ## Log
 
@@ -328,3 +330,9 @@ The hand-drawn `src/CampusSVG.jsx` was measured against the official plan and is
 **L23 — 2026-10-21 — The croquis became an instrument.** `CampusMap` zooms toward the cursor (1x-6x), pans with one pointer, pinches with two, never turns a drag into a pin, and gives every zone a 44 px hit area; the zones are a single-tab-stop spatial listbox with arrow-key navigation, `aria-activedescendant` and a live region. The zoom is a CSS transform on the artwork layer, so the pins, the zones and the click maths all share one coordinate space — `client = origin + translation + scale * layer`. The transform algebra lives in `src/map/geometry.js` as pure functions with 22 new tests.
 
 **L24 — 2026-10-21 — The token layer was rebuilt, not just renamed.** Tailwind v4 tree-shakes `@theme` variables, so the new tokens only reach the built CSS when a component references them: the fix needed both halves. The values now pass — muted text 3.17:1 → 5.99:1, placeholder 1.83:1 → 4.67:1, white-on-green pin 2.28:1 → 5.02:1, focus ring 1.40:1 → 7.48:1, and a `prefers-reduced-motion` block that neutralises the four infinite animations without hiding the pin. Two facts cost time: the darkest ground for body text is the composited `bg-surface-700/50` fill at `#1a2030`, not the panel; and a `border-*/50` token can never reach 3:1 against its own fill, which is why `--color-input-border` had to be a separate full-opacity token.
+
+**L25 — 2026-10-21 — The states and the phone.** Every screen now has its loading, empty, error, offline and expired states, rendered by one shared panel (`src/components/StateMessage.jsx`) so a state is never a bare string in the layout; loading is announced with `role="status"`, errors with `role="alert"`, and the offline banner is passive and cannot trap focus. The 390 px phone works: 44 px targets, a viewport-aware picker list (`max-h-[min(18rem,60dvh)]`), the modal that keeps its action above the on-screen keyboard through `visualViewport`, and the croquis that no longer eats the page scroll.
+
+**L26 — 2026-10-21 — The app finally ran in a browser.** `scripts/smoke-journey.mjs` drives the **already installed** Chromium (`/usr/bin/chromium`, through `playwright-core`; no browser is ever downloaded) and asserts the real journey at 1280x900 and 390x844: **238 assertions, 0 console errors**. `scripts/structure-check.mjs` adds the lightpanda pass, whose semantic tree proves what a screenshot cannot: the login is a real form with a named textbox and a live status, the picker is a `combobox` controlling a `listbox` with 90 named options, and the marker dialog is a real `dialog` with three named buttons. The 24 screenshots live in `.e2e/` (ignored: evidence, not source).
+
+**L27 — 2026-10-21 — Twenty defects the browser and the audit found.** Two were visible in the first screenshot: the nav painted as **"Bandejade reclamos(1)"** (a flex container trims the leading whitespace of every text run it receives as a child) and the pins were oversized against a 358 px plan (now scaled with the map). Eighteen more were behavioural: the campus error state was unreachable because the offline remap came first, the offline reports and inbox rendered an empty body, the picker replaced its input with a loading panel and ate the typing, reconnecting tore down the croquis the banner promised to keep, signing out left the previous student's reports in state, the contact card stayed revealed, the pointer listeners leaked on unmount, and the raster retry watched a detached `<img>`. The lesson: a state that cannot be reached is not a state, and a text split across flex items does not render the way its source reads.
