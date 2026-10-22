@@ -17,6 +17,9 @@ import {
  * zones and the pins live inside that layer, so a zoom moves them with the
  * artwork instead of leaving them behind.
  *
+ * The raster carries the same transform as the layer, so the picture, the
+ * zones and the pins zoom and pan as one thing.
+ *
  * The layer is moved with a single CSS transform, so the hit testing of a
  * tap has to undo that transform before it can ask which zone is under the
  * finger.
@@ -54,6 +57,7 @@ export default function CampusMap({
   offline = false,
 }) {
   const wrapperRef = useRef(null);
+  const stageRef = useRef(null);
   const imgRef = useRef(null);
   const zoneRefs = useRef(new Map());
   const transformRef = useRef(INITIAL_TRANSFORM);
@@ -79,12 +83,18 @@ export default function CampusMap({
   /**
    * The geometry of the painted artwork: where the layer sits on screen and
    * the bounds the transform may not leave.
+   *
+   * The measurement comes from the stage, the box that holds the raster and
+   * the layer: it never carries the transform, so the painted artwork stays
+   * put while the zoom grows. Measuring the raster instead would read back
+   * its own transformed box and the fit would grow with the zoom.
    */
   const readGeometry = useCallback(() => {
     const img = imgRef.current;
-    if (!img || !img.naturalWidth) return null;
+    const stage = stageRef.current;
+    if (!img || !stage || !img.naturalWidth) return null;
 
-    const rect = img.getBoundingClientRect();
+    const rect = stage.getBoundingClientRect();
     const natural = { width: img.naturalWidth, height: img.naturalHeight };
     const painted = fitContain({ width: rect.width, height: rect.height }, natural);
     if (!painted) return null;
@@ -106,10 +116,11 @@ export default function CampusMap({
   // area is measured and the layer is placed exactly on it.
   useEffect(() => {
     const img = imgRef.current;
-    if (!img) return undefined;
+    const stage = stageRef.current;
+    if (!img || !stage) return undefined;
 
     const measure = () => {
-      const rect = img.getBoundingClientRect();
+      const rect = stage.getBoundingClientRect();
       const painted = fitContain(
         { width: rect.width, height: rect.height },
         { width: img.naturalWidth, height: img.naturalHeight },
@@ -130,7 +141,7 @@ export default function CampusMap({
 
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(img);
+    observer.observe(stage);
     img.addEventListener('load', measure);
     return () => {
       observer.disconnect();
@@ -450,7 +461,7 @@ export default function CampusMap({
       onPointerDown={onPointerDown}
       className="relative inline-block w-full max-w-2xl touch-pan-y select-none overflow-hidden rounded-xl border-2 border-surface-700 bg-surface-800 shadow-2xl overscroll-contain"
     >
-      <div className="relative">
+      <div className="relative" ref={stageRef}>
         <img
           key={attempt}
           ref={imgRef}
@@ -461,6 +472,17 @@ export default function CampusMap({
           onLoad={() => setRaster('ready')}
           onError={() => setRaster('error')}
           className="block h-auto max-h-[60vh] w-full object-contain sm:max-h-[80vh]"
+          // El mismo transform que la capa de zonas: el croquis, las zonas y
+          // los pines se mueven como una sola cosa. El origen es la esquina
+          // del artwork pintado, que es donde la capa empieza.
+          style={
+            fit
+              ? {
+                  transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+                  transformOrigin: `${fit.x}px ${fit.y}px`,
+                }
+              : undefined
+          }
         />
 
         {fit && (
