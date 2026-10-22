@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { MagnifierIcon } from '@solar-icons/react/bold/magnifier';
 import { EmptyState, LoadingState } from './StateMessage.jsx';
 import { searchZones } from '../map/geometry.js';
 
@@ -80,9 +81,7 @@ export default function ZonePicker({ zones, onSelect, state = 'ready' }) {
         data-testid="picker-trigger"
         className="flex items-center gap-2 rounded-xl border border-surface-600/60 bg-surface-800/80 px-3 py-2 transition-colors focus-within:border-brand-500/70 focus-within:ring-2 focus-within:ring-focus"
       >
-        <span className="text-text-muted" aria-hidden="true">
-          🔎
-        </span>
+        <MagnifierIcon size={16} className="shrink-0 text-text-muted" aria-hidden="true" />
         <input
           data-testid="picker-input"
           role="combobox"
