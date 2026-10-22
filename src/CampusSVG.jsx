@@ -1,3 +1,16 @@
+/*
+ * BORRADOR — NO SE USA.
+ *
+ * A comparison against the official raster (public/mapa-itm.png) proved this
+ * drawing is a loose re-layout, not a faithful redraw: the campus block has a
+ * different aspect ratio, several buildings sit away from their real place,
+ * the parking adjacency is flipped, the athletics track overlaps a street and
+ * five information layers of the official plan are missing.
+ *
+ * The live map is the official raster plus the catalogue extracted from it
+ * (src/map/zones.js). Keep this file only as raw material for a future vector
+ * retrace (see odd/tasks/objetos-perdidas-itm.md, task T7b) or delete it.
+ */
 import React from 'react';
 
 export default function CampusSVG() {
