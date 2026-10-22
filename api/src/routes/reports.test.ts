@@ -72,10 +72,30 @@ describe('GET /reports', () => {
     expect(text).not.toContain('La muesca de la esquina superior');
     expect(text).not.toContain('owner@morelia.tecnm.mx');
 
-    const body = JSON.parse(text) as { id: string; alias: string; age_bucket: string }[];
+    const body = JSON.parse(text) as {
+      id: string;
+      alias: string;
+      age_bucket: string;
+      map_x: number | null;
+      map_y: number | null;
+    }[];
     expect(body.length).toBe(1);
     expect(body[0]?.alias).toMatch(/^Estudiante #/);
     expect(body[0]?.age_bucket).toBe('today');
+    expect(body[0]?.map_x).toBeNull();
+    expect(body[0]?.map_y).toBeNull();
+  });
+
+  it('serves the position of the pin of a created report', async () => {
+    const session = await seedSession(fixture.db, await seedUser(fixture.db, 'a@morelia.tecnm.mx'));
+    const created = await call(app, '/reports', 'POST', LOST_BODY, session);
+    expect(created.status).toBe(201);
+
+    const response = await call(app, '/reports', 'GET');
+    const body = (await response.json()) as { map_x: number | null; map_y: number | null }[];
+    expect(body.length).toBe(1);
+    expect(body[0]?.map_x).toBe(120);
+    expect(body[0]?.map_y).toBe(240);
   });
 
   it('leaves the map the reports that are resolved, expired or archived', async () => {
