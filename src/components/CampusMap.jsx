@@ -1,36 +1,43 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState, ErrorState, LoadingState } from './StateMessage.jsx';
 import {
+  LIGHT,
   clampTransform,
+  extrudePolygon,
   fitContain,
+  heightFor,
   invertTransform,
   nextZoneInDirection,
   panBy,
+  polygonArea,
+  polygonBounds,
+  polygonCentroid,
+  polygonPath,
   scaleForPoint,
   zoneAtPoint,
   zoneReadingOrder,
+  zoneShapes,
   zoomAt,
 } from '../map/geometry.js';
 
 /*
- * The croquis is a raster image with an artwork layer on top of it: the
- * zones and the pins live inside that layer, so a zoom moves them with the
- * artwork instead of leaving them behind.
+ * El croquis es un SVG que la app dibuja: el raster oscuro del plan es el
+ * suelo (trae las praderas, las calles y los rótulos impresos) y encima se
+ * levantan los volúmenes de las construcciones con una sola luz, la de arriba
+ * a la izquierda.
  *
- * The raster is the dark crop of the official plan (the legend column, the
- * title card and the crest are cut away), remapped to the app's palette by
- * the generator that also produces the zone catalogue.
+ * El SVG vive en el mismo espacio de coordenadas que el catálogo (700 x 647
+ * unidades) y dentro de la misma capa transformada que las zonas y los
+ * pines, así que el algebra del zoom y el del desplazamiento siguen siendo
+ * `cliente = origen + traslación + escala · capa`.
  *
- * The raster carries the same transform as the layer, so the picture, the
- * zones and the pins zoom and pan as one thing.
+ * Las zonas del DOM son las áreas de toque: crecen a 44 px para el dedo y se
+ * solapan, pero ya NO deciden la zona. La zona que hay bajo el dedo se
+ * resuelve con la geometría real (`zoneAtPoint`), así que un toque en el ala
+ * de una construcción partida resuelve esa construcción y no la vecina.
  *
- * The legend panel can light a zone from outside (`highlightZoneId`): the
- * building and its name are painted, so a student reading the names knows
- * which zone is which.
- *
- * The layer is moved with a single CSS transform, so the hit testing of a
- * tap has to undo that transform before it can ask which zone is under the
- * finger.
+ * El teclado no cambia: el listbox sigue siendo el camino accesible, con sus
+ * 90 opciones, su `aria-activedescendant` y su región viva.
  */
 
 /** Pointer travel, in CSS pixels, that turns a tap into a drag. */
@@ -55,6 +62,48 @@ const INITIAL_TRANSFORM = { scale: 1, x: 0, y: 0 };
 /** The id an option carries, the one `aria-activedescendant` points at. */
 const optionId = (zone) => `map-zone-${zone.id}`;
 
+/**
+ * The tones of the relief, from the app's own ramp: the face that sees the
+ * light is the lightest, the walls sink, and the base hides the edge of the
+ * building the plan painted underneath.
+ */
+const TONES = {
+  roof: 'var(--color-surface-600)',
+  wallSide: 'var(--color-surface-700)',
+  wallDown: 'var(--color-surface-800)',
+  base: 'var(--color-surface-800)',
+  code: 'var(--color-surface-100)',
+  safeRoof: 'var(--color-brand-400)',
+  safeWallSide: 'var(--color-brand-600)',
+  safeWallDown: 'var(--color-surface-800)',
+  safeBase: 'var(--color-surface-900)',
+  safeCode: 'var(--color-surface-900)',
+  safeMark: 'var(--color-brand-200)',
+  flat: 'var(--color-surface-700)',
+  flatEdge: 'var(--color-surface-600)',
+  shadow: '#000000',
+};
+
+/** The size of the code printed on a roof, in artwork units. */
+const CODE_MAX = 9;
+const CODE_MIN = 5;
+
+/**
+ * The tone of a wall: the one that looks sideways catches more of the sky
+ * than the one that looks at the ground.
+ */
+function wallTone(quad, safe) {
+  const [a, b] = quad;
+  const sideways = Math.abs(b[0] - a[0]) <= Math.abs(b[1] - a[1]);
+  if (safe) return sideways ? TONES.safeWallSide : TONES.safeWallDown;
+  return sideways ? TONES.wallSide : TONES.wallDown;
+}
+
+/** How far a volume is from the light: the further, the earlier it is painted. */
+function depthOf(volume) {
+  return (volume.roof?.x ?? 0) + (volume.roof?.y ?? 0);
+}
+
 export default function CampusMap({
   zones = [],
   image,
@@ -67,7 +116,6 @@ export default function CampusMap({
 }) {
   const wrapperRef = useRef(null);
   const stageRef = useRef(null);
-  const imgRef = useRef(null);
   const zoneRefs = useRef(new Map());
   const transformRef = useRef(INITIAL_TRANSFORM);
   const gestureRef = useRef(null);
@@ -82,6 +130,13 @@ export default function CampusMap({
   const [raster, setRaster] = useState('loading');
   const [attempt, setAttempt] = useState(0);
 
+  /** The artwork of the plan: the same coordinate space as the catalogue. */
+  const artwork = useMemo(
+    () => ({ width: image?.width ?? 700, height: image?.height ?? 647 }),
+    [image?.width, image?.height],
+  );
+  const rasterSrc = image?.src ?? '/mapa-itm-dark.png';
+
   /** Replaces the transform and keeps the ref in sync with the state. */
   const applyTransform = useCallback((compute) => {
     const next = compute(transformRef.current);
@@ -90,22 +145,30 @@ export default function CampusMap({
   }, []);
 
   /**
+   * The ground of the croquis: the SVG's `<image>` fires load and error, so
+   * the croquis still knows when the artwork arrived and when it did not.
+   */
+  const attachGround = useCallback((node) => {
+    if (!node) return;
+    node.addEventListener('load', () => setRaster('ready'));
+    node.addEventListener('error', () => setRaster('error'));
+  }, []);
+
+  /**
    * The geometry of the painted artwork: where the layer sits on screen and
    * the bounds the transform may not leave.
    *
-   * The measurement comes from the stage, the box that holds the raster and
+   * The measurement comes from the stage, the box that holds the artwork and
    * the layer: it never carries the transform, so the painted artwork stays
-   * put while the zoom grows. Measuring the raster instead would read back
+   * put while the zoom grows. Measuring the artwork itself would read back
    * its own transformed box and the fit would grow with the zoom.
    */
   const readGeometry = useCallback(() => {
-    const img = imgRef.current;
     const stage = stageRef.current;
-    if (!img || !stage || !img.naturalWidth) return null;
+    if (!stage) return null;
 
     const rect = stage.getBoundingClientRect();
-    const natural = { width: img.naturalWidth, height: img.naturalHeight };
-    const painted = fitContain({ width: rect.width, height: rect.height }, natural);
+    const painted = fitContain({ width: rect.width, height: rect.height }, artwork);
     if (!painted) return null;
 
     return {
@@ -119,21 +182,17 @@ export default function CampusMap({
         offset: { x: painted.x, y: painted.y },
       },
     };
-  }, []);
+  }, [artwork]);
 
-  // The browser letterboxes the artwork inside the image box, so the painted
+  // The browser letterboxes the artwork inside its own box, so the painted
   // area is measured and the layer is placed exactly on it.
   useEffect(() => {
-    const img = imgRef.current;
     const stage = stageRef.current;
-    if (!img || !stage) return undefined;
+    if (!stage) return undefined;
 
     const measure = () => {
       const rect = stage.getBoundingClientRect();
-      const painted = fitContain(
-        { width: rect.width, height: rect.height },
-        { width: img.naturalWidth, height: img.naturalHeight },
-      );
+      const painted = fitContain({ width: rect.width, height: rect.height }, artwork);
       setFit((previous) =>
         previous &&
         painted &&
@@ -144,19 +203,13 @@ export default function CampusMap({
           ? previous
           : painted,
       );
-      // Un croquis que ya estaba en la caché no vuelve a disparar su carga.
-      if (img.complete && img.naturalWidth > 0) setRaster('ready');
     };
 
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(stage);
-    img.addEventListener('load', measure);
-    return () => {
-      observer.disconnect();
-      img.removeEventListener('load', measure);
-    };
-  }, [attempt]);
+    return () => observer.disconnect();
+  }, [artwork]);
 
   // Los oyentes del gesto viven en la ventana: si el croquis se desmonta a
   // media pulsación, se sueltan aquí o quedan llamando a un componente muerto.
@@ -367,6 +420,61 @@ export default function CampusMap({
   );
 
   /**
+   * The scene the app draws: the volumes of the constructions (one per
+   * fragment, so a building the plan cuts in two is two volumes) and the
+   * flat zones that have no height.
+   */
+  const scene = useMemo(() => {
+    const flats = [];
+    const volumes = [];
+
+    for (const zone of zones ?? []) {
+      const shapes = zoneShapes(zone);
+      if (shapes.length === 0) continue;
+
+      if (zone.kind === 'parking') {
+        shapes.forEach((shape, index) => flats.push({ key: `${zone.id}-${index}`, shape }));
+        continue;
+      }
+      if (zone.kind !== 'building') continue;
+
+      const height = heightFor(zone);
+      const bounds = polygonBounds(zone.polygon);
+      // El código se imprime una sola vez, en la pieza mayor del edificio.
+      const main = shapes.reduce(
+        (best, shape) => (polygonArea(shape) > polygonArea(best) ? shape : best),
+        shapes[0],
+      );
+
+      shapes.forEach((shape, index) => {
+        const volume = extrudePolygon(shape, height, LIGHT);
+        const center = polygonCentroid(shape);
+        volumes.push({
+          key: `${zone.id}-${index}`,
+          zone,
+          shape,
+          ...volume,
+          main: shape === main,
+          roof: center ? { x: center.x + LIGHT.x * height, y: center.y + LIGHT.y * height } : null,
+          codeSize: bounds
+            ? Math.min(
+                CODE_MAX,
+                Math.max(
+                  CODE_MIN,
+                  Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * 0.45,
+                ),
+              )
+            : CODE_MAX,
+        });
+      });
+    }
+
+    // De atrás hacia adelante: lo que está más lejos de la luz se pinta primero.
+    volumes.sort((left, right) => depthOf(right) - depthOf(left));
+    return { flats, volumes };
+  }, [zones]);
+
+  /**
    * The pin is measured against the artwork that holds it: 32px over a croquis
    * half a metre tall is a mark, but over the croquis of a phone it swallows
    * the building it points at.
@@ -471,16 +579,13 @@ export default function CampusMap({
       className="relative inline-block w-full max-w-2xl touch-pan-y select-none overflow-hidden rounded-xl border-2 border-surface-700 bg-surface-800 shadow-2xl overscroll-contain"
     >
       <div className="relative" ref={stageRef}>
-        <img
-          key={attempt}
-          ref={imgRef}
-          data-testid="map-raster"
-          src={image?.src ?? '/mapa-itm-dark.png'}
-          alt="Plano General del Campus ITM"
-          draggable={false}
-          onLoad={() => setRaster('ready')}
-          onError={() => setRaster('error')}
-          className="block h-auto max-h-[60vh] w-full object-contain sm:max-h-[80vh]"
+        <svg
+          data-testid="map-artwork"
+          viewBox={`0 0 ${artwork.width} ${artwork.height}`}
+          preserveAspectRatio="xMidYMid meet"
+          role="img"
+          aria-label="Plano General del Campus ITM"
+          className="block h-auto max-h-[60vh] w-full sm:max-h-[80vh]"
           // El mismo transform que la capa de zonas: el croquis, las zonas y
           // los pines se mueven como una sola cosa. El origen es la esquina
           // del artwork pintado, que es donde la capa empieza.
@@ -492,9 +597,101 @@ export default function CampusMap({
                 }
               : undefined
           }
-        />
+        >
+          <title>Plano General del Campus ITM</title>
 
-        {fit && (
+          {/* El suelo: el raster oscuro del plan. */}
+          <image
+            key={attempt}
+            ref={attachGround}
+            href={rasterSrc}
+            x="0"
+            y="0"
+            width={artwork.width}
+            height={artwork.height}
+          />
+
+          {/* Las zonas planas: los estacionamientos. */}
+          <g data-layer="flats">
+            {scene.flats.map((flat) => (
+              <path
+                key={flat.key}
+                data-shape="flat"
+                d={polygonPath(flat.shape)}
+                fill={TONES.flat}
+                fillOpacity="0.5"
+                stroke={TONES.flatEdge}
+                strokeOpacity="0.35"
+                strokeWidth="1"
+              />
+            ))}
+          </g>
+
+          {/* Los volúmenes: las construcciones de pie sobre el suelo. */}
+          <g data-layer="volumes">
+            {scene.volumes.map((volume) => {
+              const safe = Boolean(volume.zone.safePoint);
+              return (
+                <g key={volume.key} data-building={volume.zone.id} data-volume={volume.key}>
+                  <path
+                    data-shape="shadow"
+                    d={polygonPath(volume.shadow)}
+                    fill={TONES.shadow}
+                    fillOpacity="0.32"
+                  />
+                  <path
+                    data-shape="base"
+                    d={polygonPath(volume.shape)}
+                    fill={safe ? TONES.safeBase : TONES.base}
+                    stroke={safe ? TONES.safeBase : TONES.base}
+                    strokeWidth="2"
+                    strokeLinejoin="round"
+                  />
+                  {volume.sides.map((quad, index) => (
+                    <path
+                      key={index}
+                      data-shape="side"
+                      d={polygonPath(quad)}
+                      fill={wallTone(quad, safe)}
+                    />
+                  ))}
+                  <path
+                    data-shape="top"
+                    d={polygonPath(volume.top)}
+                    fill={safe ? TONES.safeRoof : TONES.roof}
+                  />
+                  {volume.main && volume.roof && volume.zone.code && (
+                    <text
+                      data-shape="code"
+                      x={volume.roof.x}
+                      y={volume.roof.y}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize={volume.codeSize}
+                      fontWeight="600"
+                      fill={safe ? TONES.safeCode : TONES.code}
+                    >
+                      {volume.zone.code}
+                    </text>
+                  )}
+                  {volume.main && volume.roof && safe && (
+                    <circle
+                      data-shape="safe-mark"
+                      cx={volume.roof.x}
+                      cy={volume.roof.y}
+                      r={volume.codeSize + 2}
+                      fill="none"
+                      stroke={TONES.safeMark}
+                      strokeWidth="1.2"
+                    />
+                  )}
+                </g>
+              );
+            })}
+          </g>
+        </svg>
+
+        {fit && raster !== 'error' && (
           <div
             className="absolute pointer-events-none touch-none"
             style={{
@@ -535,7 +732,20 @@ export default function CampusMap({
                     onClick={(event) => {
                       event.stopPropagation();
                       if (dragRef.current) return;
-                      selectZone(zone);
+                      // El teclado no trae coordenadas: la opción activada es
+                      // la zona. Con el dedo manda la geometría real.
+                      if (event.detail === 0) {
+                        selectZone(zone);
+                        return;
+                      }
+                      const geometry = readGeometry();
+                      if (!geometry) return;
+                      const hit = zoneAtClientPoint(
+                        { x: event.clientX, y: event.clientY },
+                        geometry,
+                      );
+                      if (hit.zone) selectZone(hit.zone);
+                      else onPick?.(hit.artworkPoint);
                     }}
                     ref={(node) => {
                       if (node) zoneRefs.current.set(zone.id, node);

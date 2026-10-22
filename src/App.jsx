@@ -72,7 +72,13 @@ function MapPin({ report, onClick }) {
       title={`${isLost ? 'Perdido' : 'Encontrado'}: ${report.item}${report.zoneLabel ? ` · ${report.zoneLabel}` : ''}`}
       aria-label={`Pin ${isLost ? 'perdido' : 'encontrado'}: ${report.item}${report.zoneLabel ? ` en ${report.zoneLabel}` : ''}`}
     >
-      <div className="absolute bottom-0 left-1/2 h-1.5 w-3 -translate-x-1/2 translate-y-1 rounded-full bg-black/40 blur-sm" />
+      {/* La sombra que hace que el pin esté de pie: una elipse que cae hacia
+          abajo a la derecha, la misma dirección en la que cae la sombra de
+          los volúmenes del croquis. */}
+      <div
+        data-testid="pin-shadow"
+        className="absolute bottom-0 left-[calc(50%+3px)] h-2 w-4 -translate-x-1/2 translate-y-2 rounded-full bg-black/45 blur-[2px]"
+      />
       <div className="relative flex flex-col items-center">
         <div
           className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/80 shadow-lg transition-all duration-300 group-hover:scale-125 group-hover:shadow-xl ${
