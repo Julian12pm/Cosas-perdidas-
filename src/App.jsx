@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MOCK_PINS, RELEASE_KEY_LENGTH, formatTimestamp, generateUnlockCode } from './data.js';
-import { artworkToPercent, clientToArtwork, fitContain } from './map/geometry.js';
+import {
+  artworkToPercent,
+  clientToArtwork,
+  fitContain,
+  polygonCentroid,
+  zoneAtPoint,
+} from './map/geometry.js';
+import { MAP_IMAGE, ZONES } from './map/zones.js';
+import ZoneOverlay from './components/ZoneOverlay.jsx';
+import ZonePicker from './components/ZonePicker.jsx';
 
 /* ─────────────────────────── Iconos inline ─────────────────────────── */
 const IconLost = () => (
@@ -62,8 +71,8 @@ function MapPin({ pin, onClick }) {
       }}
       className={`absolute z-10 -translate-x-1/2 -translate-y-full cursor-pointer group animate-pin-drop pointer-events-auto`}
       style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
-      title={`${isLost ? '🔴 Perdido' : '🟢 Encontrado'}: ${pin.item}`}
-      aria-label={`Pin ${isLost ? 'perdido' : 'encontrado'}: ${pin.item}`}
+      title={`${isLost ? '🔴 Perdido' : '🟢 Encontrado'}: ${pin.item}${pin.zoneLabel ? ` · ${pin.zoneLabel}` : ''}`}
+      aria-label={`Pin ${isLost ? 'perdido' : 'encontrado'}: ${pin.item}${pin.zoneLabel ? ` en ${pin.zoneLabel}` : ''}`}
     >
       <div
         className={`absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1 w-3 h-1.5 rounded-full bg-black/40 blur-sm`}
@@ -99,6 +108,7 @@ function MapPin({ pin, onClick }) {
         <span className="text-surface-300 ml-1">
           · {pin.item.length > 25 ? pin.item.slice(0, 25) + '...' : pin.item}
         </span>
+        {pin.zoneLabel && <span className="text-brand-300 ml-1">· 📍 {pin.zoneLabel}</span>}
         <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-l-transparent border-r-4 border-r-transparent border-t-4 border-t-surface-900/95" />
       </div>
     </button>
@@ -443,6 +453,7 @@ export default function App() {
   const [pins, setPins] = useState(MOCK_PINS);
   const [modal, setModal] = useState(null);
   const [clickPos, setClickPos] = useState(null);
+  const [clickZone, setClickZone] = useState(null);
   const [mapFit, setMapFit] = useState(null);
   const imgRef = useRef(null);
 
@@ -496,8 +507,22 @@ export default function App() {
     );
     if (!point) return;
 
+    // El catálogo comparte el espacio de píxeles del raster, así que el toque
+    // se resuelve a una zona o cae en terreno libre.
+    const zone = zoneAtPoint(point, ZONES);
     const percent = artworkToPercent(point, natural);
     setClickPos({ x: parseFloat(percent.x.toFixed(2)), y: parseFloat(percent.y.toFixed(2)) });
+    setClickZone(zone ? { id: zone.id, label: zone.label } : null);
+    setModal('choose');
+  }, []);
+
+  const handleZoneSelect = useCallback((zone) => {
+    const centroid = polygonCentroid(zone.polygon);
+    if (!centroid) return;
+
+    const percent = artworkToPercent(centroid, MAP_IMAGE);
+    setClickPos({ x: parseFloat(percent.x.toFixed(2)), y: parseFloat(percent.y.toFixed(2)) });
+    setClickZone({ id: zone.id, label: zone.label });
     setModal('choose');
   }, []);
 
@@ -513,6 +538,8 @@ export default function App() {
           type: 'lost',
           x: clickPos.x,
           y: clickPos.y,
+          zoneId: clickZone?.id ?? null,
+          zoneLabel: clickZone?.label ?? null,
           item,
           description,
           reportedBy,
@@ -522,8 +549,9 @@ export default function App() {
       ]);
       setModal(null);
       setClickPos(null);
+      setClickZone(null);
     },
-    [clickPos],
+    [clickPos, clickZone],
   );
 
   const handleFoundSubmit = useCallback(
@@ -535,6 +563,8 @@ export default function App() {
           type: 'found',
           x: clickPos.x,
           y: clickPos.y,
+          zoneId: clickZone?.id ?? null,
+          zoneLabel: clickZone?.label ?? null,
           item,
           description: 'Reporte ciego',
           reportedBy,
@@ -544,8 +574,9 @@ export default function App() {
       ]);
       setModal(null);
       setClickPos(null);
+      setClickZone(null);
     },
-    [clickPos],
+    [clickPos, clickZone],
   );
 
   const handleUnlock = useCallback((pinId) => {
@@ -556,6 +587,7 @@ export default function App() {
   const closeModal = useCallback(() => {
     setModal(null);
     setClickPos(null);
+    setClickZone(null);
   }, []);
 
   const lostCount = pins.filter((p) => p.type === 'lost').length;
@@ -584,7 +616,9 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 flex justify-center items-start p-4 md:p-6 w-full overflow-auto">
+      <main className="flex-1 flex flex-col items-center gap-3 p-4 md:p-6 w-full overflow-auto">
+        <ZonePicker zones={ZONES} onSelect={handleZoneSelect} />
+
         <div
           onClick={handleMapClick}
           className="relative inline-block max-w-full border-2 border-surface-700 shadow-2xl rounded-xl overflow-hidden cursor-crosshair bg-surface-800"
@@ -622,13 +656,15 @@ export default function App() {
             </p>
           </div>
 
-          {/* Capa que cubre solo el área pintada del plano: los pines se posicionan
-              en porcentajes del arte, no de la caja con relleno. */}
+          {/* Capa que cubre solo el área pintada del plano: los pines y las
+              zonas se posicionan en porcentajes del arte, no de la caja con relleno. */}
           {mapFit && (
             <div
               className="absolute pointer-events-none"
               style={{ left: mapFit.x, top: mapFit.y, width: mapFit.width, height: mapFit.height }}
             >
+              <ZoneOverlay zones={ZONES} image={MAP_IMAGE} onSelect={handleZoneSelect} />
+
               {pins.map((pin) => (
                 <MapPin key={pin.id} pin={pin} onClick={handlePinClick} />
               ))}
