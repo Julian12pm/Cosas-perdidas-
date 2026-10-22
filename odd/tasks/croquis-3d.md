@@ -61,7 +61,13 @@ Scope: the building footprints come from the masks the generator already compute
 Acceptance: `polygon` is the real contour of the detected component (not its bounding box); the fragmented buildings keep all their fragments; the simplification is documented with its tolerance.
 Checks: the catalogue test asserts that a polygon is not simply its box for the known non-rectangular buildings; the visual review against `public/zones-debug.png`.
 
-### S8 — The heights are not invented
+### S8 — The heights come from the plan's own words
+
+> "El plano es una vista en planta: no tiene alturas. De dónde sacamos la altura de cada edificio para poder extruirlo?"
+
+Scope: the raster has no height, but its LEGEND says what every building is: "Aulas", "Laboratorio de Rayos X", "Taller de Maquinado", "Gimnasio Auditorio", "Centro de Información", "Consejo Estudiantil", "Comedor". The height is derived from that text: a block of classrooms is low, a workshop or a laboratory is medium, a gymnasium, an auditorium or the library is tall. Nothing is invented — the plan states the use.
+Acceptance: no hand-written table of 52 heights exists; the height is a pure function of the zone's name (with a documented default), and the two safe points are marked by their BRAND COLOUR and a marker, not by an invented height.
+Checks: a unit test pins the category of a representative zone per family, and the default for an unknown name.
 
 Scope: the raster carries no height, so the extrusion uses ONE constant height for every building, and a taller volume only for the two safe points (a product decision, not geometry).
 Acceptance: no per-building height table exists in the data; the safe points are visibly taller and are marked as such in the code.
@@ -168,3 +174,7 @@ These are asserted by `scripts/smoke-journey.mjs` and `scripts/structure-check.m
 
 **L7 — 2026-10-22 — T3: the buildings got their real shape.** The generator now fills the holes of the dilated blob, erodes one pixel (that is what keeps the anti-aliased rim out), traces the outer boundary and simplifies it with Douglas-Peucker at 1 px — the width of the printed strokes, the smallest distance the plan can show. **39 of the 53 constructions are no longer their box** (the courtyard of A is in its shape, 2H is the two pieces its own label cuts it into, the thin patio is 11 % of its box). The catalogue now carries `polygon` (the biggest ring) plus `fragments` (every ring) while `box` stays untouched, and the hit-testing resolves any fragment — a tap on the wing of 2H gives 2H.
 **What this exposes for T4:** the zone buttons in the DOM are still boxes expanded to 44 px, and they overlap: on a desktop the whole wing of 2H sits under the buttons of a parking lot and an internet module, so a DOM tap there still resolves the neighbour. The DOM will only attribute a fragment to its building when the renderer draws the REAL shapes — that is exactly what T4 is for.
+
+**L8 — 2026-10-22 — The decisions that shaped T4+T5.** The user chose to do the inline SVG renderer and the extrusion in ONE unit (the vector has to be visible before the relief makes sense), and to take the HEIGHTS from the type of use derived from the plan's own legend ("Aulas" low, "Taller"/"Laboratorio" medium, "Gimnasio"/"Centro de Información" tall) instead of a constant or an invented table. The SVG therefore layers the dark raster as the GROUND (it still carries the lawns, the streets and the printed labels) under the extruded buildings, which stand on it with one light direction; the safe points are told apart by the brand colour, not by a taller volume.
+
+**L9 — 2026-10-22 — What T3 left for the renderer.** The zone BUTTONS in the DOM are still boxes grown to 44 px, and they overlap: on a desktop the whole wing of 2H sits under the buttons of a parking lot and an internet module, so a DOM tap there resolves the neighbour. The fix is not bigger buttons but a different RESOLUTION: the buttons stay big for the thumb, and the zone under the finger is resolved from the REAL geometry (the traced footprints), picking the smallest shape that contains the point. The keyboard path keeps resolving through the listbox options.
