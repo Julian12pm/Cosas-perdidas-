@@ -35,6 +35,9 @@ dist-ssr
 # CodeGraph index
 .codegraph/
 
+# Zone extraction debug overlay (verification artefact, never shipped)
+public/zones-debug.png
+
 # Vite+ / pnpm
 .pnpm-store/
 .vite-hooks/
