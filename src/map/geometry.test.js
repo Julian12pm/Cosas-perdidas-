@@ -1,15 +1,22 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
   artworkToPercent,
+  clampTransform,
   clientToArtwork,
   fitContain,
+  invertTransform,
+  nextZoneInDirection,
+  panBy,
   pointInPolygon,
   polygonArea,
   polygonBounds,
   polygonCentroid,
+  scaleForPoint,
   searchZones,
   zoneAtPoint,
+  zoneReadingOrder,
   zoneToPercent,
+  zoomAt,
 } from './geometry.js';
 
 const ARTWORK = { width: 846, height: 647 };
@@ -390,5 +397,211 @@ describe('searchZones', () => {
 
   it('returns nothing when no zone matches', () => {
     expect(searchZones('zzz', ZONES)).toEqual([]);
+  });
+});
+
+// The artwork layer is moved with `translate(x, y) scale(k)`, so a client
+// point is `origin + translation + scale * layer`.
+const ORIGIN = { x: 100, y: 50 };
+
+const LIMITS = {
+  minScale: 1,
+  maxScale: 6,
+  viewport: { width: 800, height: 600 },
+  content: { width: 800, height: 600 },
+  offset: { x: 0, y: 0 },
+};
+
+describe('invertTransform', () => {
+  it('maps a client point back to the layer point under it', () => {
+    const transform = { scale: 2, x: 30, y: -10 };
+    const layerPoint = invertTransform(
+      { x: ORIGIN.x + 30 + 2 * 40, y: ORIGIN.y - 10 + 2 * 25 },
+      ORIGIN,
+      transform,
+    );
+    expect(layerPoint.x).toBeCloseTo(40, 6);
+    expect(layerPoint.y).toBeCloseTo(25, 6);
+  });
+
+  it('maps the origin of the layer to the origin of the transform', () => {
+    const transform = { scale: 1.5, x: 12, y: -8 };
+    const layerPoint = invertTransform({ x: ORIGIN.x + 12, y: ORIGIN.y - 8 }, ORIGIN, transform);
+    expect(layerPoint.x).toBeCloseTo(0, 6);
+    expect(layerPoint.y).toBeCloseTo(0, 6);
+  });
+});
+
+describe('zoomAt', () => {
+  it('keeps the point under the cursor fixed', () => {
+    const transform = { scale: 1, x: 0, y: 0 };
+    const clientPoint = { x: 300, y: 250 };
+    const layerPoint = invertTransform(clientPoint, ORIGIN, transform);
+
+    const zoomed = zoomAt(transform, clientPoint, ORIGIN, 2, LIMITS);
+    const after = invertTransform(clientPoint, ORIGIN, zoomed);
+
+    expect(after.x).toBeCloseTo(layerPoint.x, 6);
+    expect(after.y).toBeCloseTo(layerPoint.y, 6);
+    expect(zoomed.scale).toBeCloseTo(2, 6);
+  });
+
+  it('keeps the point under the cursor fixed on a zoomed map', () => {
+    const transform = { scale: 3, x: -120, y: 80 };
+    const clientPoint = { x: 420, y: 300 };
+    const layerPoint = invertTransform(clientPoint, ORIGIN, transform);
+
+    const zoomed = zoomAt(transform, clientPoint, ORIGIN, 1.5, LIMITS);
+    const after = invertTransform(clientPoint, ORIGIN, zoomed);
+
+    expect(after.x).toBeCloseTo(layerPoint.x, 6);
+    expect(after.y).toBeCloseTo(layerPoint.y, 6);
+    expect(zoomed.scale).toBeCloseTo(4.5, 6);
+  });
+
+  it('stops at the maximum scale', () => {
+    const zoomed = zoomAt({ scale: 1, x: 0, y: 0 }, { x: 300, y: 250 }, ORIGIN, 20, LIMITS);
+    expect(zoomed.scale).toBe(6);
+  });
+
+  it('stops at the minimum scale', () => {
+    const zoomed = zoomAt({ scale: 2, x: 0, y: 0 }, { x: 300, y: 250 }, ORIGIN, 0.25, LIMITS);
+    expect(zoomed.scale).toBe(1);
+  });
+});
+
+describe('panBy', () => {
+  it('moves the artwork by the delta', () => {
+    const panned = panBy({ scale: 2, x: -100, y: -50 }, 30, 20, LIMITS);
+    expect(panned.x).toBe(-70);
+    expect(panned.y).toBe(-30);
+    expect(panned.scale).toBe(2);
+  });
+
+  it('does not move an artwork that fills the viewport', () => {
+    const panned = panBy({ scale: 1, x: 0, y: 0 }, 500, 500, LIMITS);
+    expect(panned.x).toBe(0);
+    expect(panned.y).toBe(0);
+  });
+});
+
+describe('clampTransform', () => {
+  it('keeps the scale inside the bounds', () => {
+    expect(clampTransform({ scale: 12, x: 0, y: 0 }, LIMITS).scale).toBe(6);
+    expect(clampTransform({ scale: 0.2, x: 0, y: 0 }, LIMITS).scale).toBe(1);
+  });
+
+  it('keeps a zoomed artwork covering the viewport', () => {
+    const clamped = clampTransform({ scale: 2, x: -5000, y: 0 }, LIMITS);
+    expect(clamped.x).toBe(-800);
+    expect(clamped.y).toBe(0);
+  });
+
+  it('centres an artwork smaller than the viewport', () => {
+    const limits = {
+      minScale: 1,
+      maxScale: 6,
+      viewport: { width: 800, height: 600 },
+      content: { width: 400, height: 300 },
+      offset: { x: 200, y: 150 },
+    };
+    const clamped = clampTransform({ scale: 1, x: 40, y: -20 }, limits);
+    expect(clamped.x).toBe(0);
+    expect(clamped.y).toBe(0);
+  });
+});
+
+describe('scaleForPoint', () => {
+  it('keeps a layer point under a fixed client point', () => {
+    const transform = { scale: 1, x: 0, y: 0 };
+    const midpoint = { x: 320, y: 260 };
+    const layerPoint = invertTransform(midpoint, ORIGIN, transform);
+
+    const pinched = scaleForPoint(transform, layerPoint, ORIGIN, 2.5);
+    const after = invertTransform(midpoint, ORIGIN, pinched);
+
+    expect(after.x).toBeCloseTo(layerPoint.x, 6);
+    expect(after.y).toBeCloseTo(layerPoint.y, 6);
+    expect(pinched.scale).toBeCloseTo(2.5, 6);
+  });
+
+  it('round-trips a pinch through the inverse transform', () => {
+    const transform = { scale: 1.5, x: -60, y: 25 };
+    const midpoint = { x: 300, y: 250 };
+    const layerPoint = invertTransform(midpoint, ORIGIN, transform);
+
+    const pinched = scaleForPoint(transform, layerPoint, ORIGIN, 0.5);
+    const after = invertTransform(midpoint, ORIGIN, pinched);
+
+    expect(pinched.scale).toBeCloseTo(0.75, 6);
+    expect(after.x).toBeCloseTo(layerPoint.x, 6);
+    expect(after.y).toBeCloseTo(layerPoint.y, 6);
+  });
+});
+
+describe('zoneReadingOrder', () => {
+  const ROW_ZONES = [
+    { id: 'low', box: { x: 100, y: 300, width: 20, height: 20 } },
+    { id: 'row-left', box: { x: 10, y: 100, width: 20, height: 20 } },
+    { id: 'row-right', box: { x: 200, y: 105, width: 20, height: 20 } },
+    { id: 'tall', box: { x: 300, y: 95, width: 20, height: 60 } },
+  ];
+
+  it('groups the zones into rows from top to bottom', () => {
+    const rows = zoneReadingOrder(ROW_ZONES);
+    expect(rows.map((row) => row.map((zone) => zone.id))).toEqual([
+      ['row-left', 'row-right', 'tall'],
+      ['low'],
+    ]);
+  });
+
+  it('orders the zones of a row from left to right', () => {
+    const rows = zoneReadingOrder([...ROW_ZONES].reverse());
+    expect(rows[0].map((zone) => zone.id)).toEqual(['row-left', 'row-right', 'tall']);
+  });
+
+  it('ignores the zones without a box', () => {
+    const rows = zoneReadingOrder([{ id: 'none' }, ...ROW_ZONES]);
+    expect(rows.flat().map((zone) => zone.id)).not.toContain('none');
+  });
+});
+
+describe('nextZoneInDirection', () => {
+  const ZONES_IN_ROWS = [
+    { id: 'a', box: { x: 10, y: 100, width: 20, height: 20 } },
+    { id: 'b', box: { x: 200, y: 105, width: 20, height: 20 } },
+    { id: 'c', box: { x: 15, y: 300, width: 20, height: 20 } },
+    { id: 'd', box: { x: 190, y: 305, width: 20, height: 20 } },
+  ];
+  const ROWS = zoneReadingOrder(ZONES_IN_ROWS);
+
+  it('walks to the next zone of the row', () => {
+    expect(nextZoneInDirection(ROWS, 'a', 'right')?.id).toBe('b');
+    expect(nextZoneInDirection(ROWS, 'b', 'left')?.id).toBe('a');
+  });
+
+  it('wraps to the next row when the row ends', () => {
+    expect(nextZoneInDirection(ROWS, 'b', 'right')?.id).toBe('c');
+    expect(nextZoneInDirection(ROWS, 'c', 'left')?.id).toBe('b');
+  });
+
+  it('jumps to the nearest zone of the row below', () => {
+    expect(nextZoneInDirection(ROWS, 'a', 'down')?.id).toBe('c');
+    expect(nextZoneInDirection(ROWS, 'b', 'down')?.id).toBe('d');
+  });
+
+  it('jumps to the nearest zone of the row above', () => {
+    expect(nextZoneInDirection(ROWS, 'd', 'up')?.id).toBe('b');
+    expect(nextZoneInDirection(ROWS, 'c', 'up')?.id).toBe('a');
+  });
+
+  it('returns null when there is nowhere to go', () => {
+    expect(nextZoneInDirection(ROWS, 'a', 'left')).toBeNull();
+    expect(nextZoneInDirection(ROWS, 'a', 'up')).toBeNull();
+    expect(nextZoneInDirection(ROWS, 'c', 'down')).toBeNull();
+  });
+
+  it('returns null for a zone that is not on the map', () => {
+    expect(nextZoneInDirection(ROWS, 'ghost', 'right')).toBeNull();
   });
 });
