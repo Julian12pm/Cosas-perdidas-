@@ -75,7 +75,7 @@ const LEGEND = {
   AC: 'Depto. de Ciencias Básicas',
   AD: 'Cátedra para Prof. de Ciencias Básicas',
   AE: 'Laboratorio de Maestría en Electrónica',
-  AF: 'Centro de Información SIG (lectores)',
+  AF: 'Centro de Información (Biblioteca)',
   AG: 'Educ. a Dist., C. Cómputo, Posg. Mecánica',
   AH: 'Departamento de Bioquímica y Laboratorios',
   '2A': 'Depto. Ing. Mecánica y Prog. en Materiales',
@@ -617,13 +617,12 @@ for (const [code, host] of bound) {
   usedBoxes.add(host);
   const unit = unitOf(host);
   const name = LEGEND[code] ?? `Edificio ${code}`;
-  // safePoint: the hand-over points of the product spec ("Biblioteca o la
-  // Jefatura"). The official plan has NO Biblioteca entry — its legend names
-  // G as "Laboratorio Ing. Mecánica 1 e Ing. Eléctrica" — so the two
-  // plan-backed safe points are the Edificio Administrativo (A, where a
-  // Dean's office sits) and the Cafetería (R), the only staffed handover
-  // space in the plan. Both are a product decision, not a reading of the plan.
-  const safePoint = code === 'A' || code === 'R';
+  // safePoint: the hand-over points of the product spec ("la Biblioteca o la
+  // Jefatura"). The official plan never prints the word "Biblioteca", but its
+  // legend names AF as the "Centro de Información" — which is the campus
+  // library — and A as the "Edificio Administrativo", where a Dean's office
+  // sits. Both readings come from the plan, magnified 4x.
+  const safePoint = code === 'A' || code === 'AF';
   zones.push({
     id: `bldg-${slug(code)}`,
     code,

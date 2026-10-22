@@ -604,7 +604,7 @@ export const ZONES = [
     name: 'Cafetería',
     unit: 'central',
     kind: 'building',
-    safePoint: true,
+    safePoint: false,
     label: 'R · Cafetería',
     box: { x: 324, y: 361, width: 15, height: 20 },
     polygon: [
@@ -665,11 +665,11 @@ export const ZONES = [
   {
     id: 'bldg-af',
     code: 'AF',
-    name: 'Centro de Información SIG (lectores)',
+    name: 'Centro de Información (Biblioteca)',
     unit: 'central',
     kind: 'building',
-    safePoint: false,
-    label: 'AF · Centro de Información SIG (lectores)',
+    safePoint: true,
+    label: 'AF · Centro de Información (Biblioteca)',
     box: { x: 526, y: 367, width: 47, height: 49 },
     polygon: [
       [526, 367],
