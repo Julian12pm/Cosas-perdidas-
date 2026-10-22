@@ -19,6 +19,7 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { MAP_IMAGE, ZONES } from '../src/map/zones.js';
 
 /* ─────────────────────────── Configuración ─────────────────────────── */
 
@@ -163,6 +164,91 @@ async function artworkTransform(page) {
 function scaleOf(transform) {
   const match = transform?.match(/scale\(([\d.]+)\)/);
   return match ? Number(match[1]) : NaN;
+}
+
+/** La caja de la capa del artwork (las zonas y los pines): el croquis pintado. */
+async function artworkLayerBox(page) {
+  return page.evaluate(() => {
+    const layer = document.querySelector('[data-testid="map"] [role="listbox"]')?.parentElement;
+    if (!layer) return null;
+    const rect = layer.getBoundingClientRect();
+    return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+  });
+}
+
+/**
+ * El raster del croquis: la caja que se ve en la pantalla y el marco de la
+ * letterbox sobre su caja de layout (la que el zoom no toca).
+ */
+async function rasterBox(page) {
+  return page.evaluate(() => {
+    const img = document.querySelector('[data-testid="map-raster"]');
+    if (!img || !img.naturalWidth) return null;
+    const style = getComputedStyle(img);
+    const local = { width: parseFloat(style.width), height: parseFloat(style.height) };
+    const natural = { width: img.naturalWidth, height: img.naturalHeight };
+    const rect = img.getBoundingClientRect();
+    const scale = Math.min(local.width / natural.width, local.height / natural.height);
+    const painted = {
+      x: (local.width - natural.width * scale) / 2,
+      y: (local.height - natural.height * scale) / 2,
+      width: natural.width * scale,
+      height: natural.height * scale,
+    };
+    return {
+      box: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      local,
+      painted,
+    };
+  });
+}
+
+/** La caja del artwork tal como la pinta el raster, en la pantalla. */
+function paintedArtworkBox(raster) {
+  return {
+    left: raster.box.left + (raster.painted.x / raster.local.width) * raster.box.width,
+    top: raster.box.top + (raster.painted.y / raster.local.height) * raster.box.height,
+    width: (raster.painted.width / raster.local.width) * raster.box.width,
+    height: (raster.painted.height / raster.local.height) * raster.box.height,
+  };
+}
+
+/** El punto del artwork (0..1) que el raster pinta bajo un punto de la pantalla. */
+function artworkUnder(raster, client) {
+  const localX = ((client.x - raster.box.left) / raster.box.width) * raster.local.width;
+  const localY = ((client.y - raster.box.top) / raster.box.height) * raster.local.height;
+  return {
+    x: (localX - raster.painted.x) / raster.painted.width,
+    y: (localY - raster.painted.y) / raster.painted.height,
+  };
+}
+
+/** El punto de la pantalla donde el raster pinta un punto del artwork. */
+function screenOfArtwork(raster, artwork) {
+  const localX = raster.painted.x + artwork.x * raster.painted.width;
+  const localY = raster.painted.y + artwork.y * raster.painted.height;
+  return {
+    x: raster.box.left + (localX / raster.local.width) * raster.box.width,
+    y: raster.box.top + (localY / raster.local.height) * raster.box.height,
+  };
+}
+
+/** El punto de la pantalla donde la capa de zonas pinta un punto del artwork. */
+function screenOfArtworkLayer(layer, artwork) {
+  return {
+    x: layer.left + artwork.x * layer.width,
+    y: layer.top + artwork.y * layer.height,
+  };
+}
+
+/** El tamaño en pantalla del primer pin del mapa. */
+async function pinSize(page) {
+  return page.evaluate(() => {
+    const pin = document.querySelector('button[aria-label^="Pin "]');
+    if (!pin) return null;
+    const rect = pin.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  });
 }
 
 /** Los pines del mapa (los botones con nombre accesible "Pin perdido/encontrado"). */
@@ -565,7 +651,14 @@ async function runJourney(browser, viewport) {
     // límites), así que el gesto de arrastre sólo existe una vez ampliado.
     const zoomBefore = await artworkTransform(page);
     const mapBox = await page.locator(t('map')).boundingBox();
-    await page.mouse.move(mapBox.x + mapBox.width / 2, mapBox.y + Math.min(120, mapBox.height / 2));
+    const cursor = {
+      x: mapBox.x + mapBox.width / 2,
+      y: mapBox.y + Math.min(120, mapBox.height / 2),
+    };
+    await page.mouse.move(cursor.x, cursor.y);
+    const rasterBefore = await rasterBox(page);
+    const layerBefore = await artworkLayerBox(page);
+    const pinBefore = await pinSize(page);
     await page.mouse.wheel(0, -400);
     await sleep(300);
     const zoomAfter = await artworkTransform(page);
@@ -576,6 +669,173 @@ async function runJourney(browser, viewport) {
       'escala mayor que antes',
       `escala ${scaleOf(zoomBefore)} → ${scaleOf(zoomAfter)}`,
     );
+
+    /* ── 3b. El croquis crece con el zoom, como las zonas y los pines ── */
+    const zoomScale = scaleOf(zoomAfter) / scaleOf(zoomBefore);
+    const rasterAfter = await rasterBox(page);
+    const layerAfter = await artworkLayerBox(page);
+    const pinAfter = await pinSize(page);
+    const rasterRatio = rasterAfter.box.width / rasterBefore.box.width;
+    const layerRatio = layerAfter.width / layerBefore.width;
+    const pinRatio = pinAfter.width / pinBefore.width;
+    record(
+      vp,
+      'el croquis crece con el zoom',
+      Math.abs(rasterRatio - zoomScale) <= 0.02 * zoomScale,
+      `la caja del croquis crece ${zoomScale.toFixed(3)}x`,
+      `crece ${rasterRatio.toFixed(3)}x`,
+    );
+    record(
+      vp,
+      'las zonas del croquis crecen con el zoom',
+      Math.abs(layerRatio - zoomScale) <= 0.02 * zoomScale,
+      `la capa de zonas crece ${zoomScale.toFixed(3)}x`,
+      `crece ${layerRatio.toFixed(3)}x`,
+    );
+    record(
+      vp,
+      'los pines y el croquis crecen juntos',
+      Math.abs(pinRatio - rasterRatio) <= 0.03 * zoomScale,
+      `el pin y el croquis crecen lo mismo (${zoomScale.toFixed(3)}x)`,
+      `pin ${pinRatio.toFixed(3)}x, croquis ${rasterRatio.toFixed(3)}x`,
+    );
+
+    // El croquis y las zonas tienen que dibujar el mismo artwork.
+    const painted = paintedArtworkBox(rasterAfter);
+    const drift = Math.max(
+      Math.abs(painted.left - layerAfter.left),
+      Math.abs(painted.top - layerAfter.top),
+      Math.abs(painted.width - layerAfter.width),
+      Math.abs(painted.height - layerAfter.height),
+    );
+    record(
+      vp,
+      'el croquis y las zonas dibujan el mismo artwork',
+      drift <= 2,
+      'las dos cajas del artwork coinciden (2px)',
+      `desfase ${drift.toFixed(2)}px`,
+    );
+
+    // El artwork bajo el cursor no se mueve: el zoom se ancla en él.
+    const anchorBefore = artworkUnder(rasterBefore, cursor);
+    const anchorAfter = artworkUnder(rasterAfter, cursor);
+    const anchorLayer = {
+      x: (cursor.x - layerAfter.left) / layerAfter.width,
+      y: (cursor.y - layerAfter.top) / layerAfter.height,
+    };
+    record(
+      vp,
+      'el punto del artwork bajo el cursor no se mueve con el zoom',
+      Math.abs(anchorAfter.x - anchorBefore.x) <= 0.004 &&
+        Math.abs(anchorAfter.y - anchorBefore.y) <= 0.004 &&
+        Math.abs(anchorAfter.x - anchorLayer.x) <= 0.004 &&
+        Math.abs(anchorAfter.y - anchorLayer.y) <= 0.004,
+      'el mismo punto del artwork en el croquis y en las zonas (0.4%)',
+      `antes (${anchorBefore.x.toFixed(4)}, ${anchorBefore.y.toFixed(4)}) → croquis (${anchorAfter.x.toFixed(4)}, ${anchorAfter.y.toFixed(4)}) zonas (${anchorLayer.x.toFixed(4)}, ${anchorLayer.y.toFixed(4)})`,
+    );
+
+    // Un punto fijo del artwork: el croquis y las zonas lo pintan en el
+    // mismo lugar de la pantalla.
+    const fixed = { x: 0.5, y: 0.5 };
+    const fixedRaster = screenOfArtwork(rasterAfter, fixed);
+    const fixedLayer = screenOfArtworkLayer(layerAfter, fixed);
+    const fixedGap = Math.hypot(fixedRaster.x - fixedLayer.x, fixedRaster.y - fixedLayer.y);
+    record(
+      vp,
+      'un punto fijo del artwork se dibuja en el mismo lugar en el croquis y en las zonas',
+      fixedGap <= 2,
+      'el centro del croquis coincide en las dos capas (2px)',
+      `croquis (${fixedRaster.x.toFixed(1)}, ${fixedRaster.y.toFixed(1)}) zonas (${fixedLayer.x.toFixed(1)}, ${fixedLayer.y.toFixed(1)})`,
+    );
+    await checkOverflow(page, vp, 'map-zoom');
+
+    /* ── 3c. Un toque después del zoom cae en la zona que señala ─────── */
+    // El catálogo manda: el centro de una zona en píxeles del artwork. El
+    // punto de la pantalla lo dice el croquis, así que un toque convierte el
+    // zoom en la zona que el dedo señaló.
+    //
+    // La zona se busca lejos del cursor: junto al ancla del zoom casi no se
+    // mueve, y un toque ahí no probaría nada.
+    const inside = (point) =>
+      point.x > mapBox.x + 4 &&
+      point.x < mapBox.x + mapBox.width - 4 &&
+      point.y > mapBox.y + 4 &&
+      point.y < mapBox.y + mapBox.height - 4;
+
+    const candidates = ZONES.map((zone) => ({
+      id: zone.id,
+      label: zone.label,
+      artwork: {
+        x: (zone.box.x + zone.box.width / 2) / MAP_IMAGE.width,
+        y: (zone.box.y + zone.box.height / 2) / MAP_IMAGE.height,
+      },
+    }))
+      // Dónde queda la zona con el zoom (lo dice la capa de zonas) y dónde
+      // quedaba antes de acercar.
+      .map((candidate) => ({
+        ...candidate,
+        zoomed: screenOfArtworkLayer(layerAfter, candidate.artwork),
+        plain: screenOfArtworkLayer(layerBefore, candidate.artwork),
+      }))
+      .filter((candidate) => inside(candidate.zoomed) && inside(candidate.plain))
+      .sort(
+        (left, right) =>
+          Math.hypot(right.zoomed.x - cursor.x, right.zoomed.y - cursor.y) -
+          Math.hypot(left.zoomed.x - cursor.x, left.zoomed.y - cursor.y),
+      );
+
+    let target = null;
+    for (const candidate of candidates) {
+      const hit = await page.evaluate((point) => {
+        const element = document.elementFromPoint(point.x, point.y);
+        return {
+          zoneId: element?.closest('[data-zone-id]')?.getAttribute('data-zone-id') ?? null,
+          pin: Boolean(element?.closest('button[aria-label^="Pin "]')),
+        };
+      }, candidate.zoomed);
+      if (hit.zoneId === candidate.id && !hit.pin) {
+        target = candidate;
+        break;
+      }
+    }
+
+    record(
+      vp,
+      'hay una zona del catálogo a la que se puede tocar después del zoom',
+      Boolean(target),
+      'una zona visible lejos del ancla del zoom',
+      target
+        ? `${target.id} en (${target.zoomed.x.toFixed(0)}, ${target.zoomed.y.toFixed(0)})`
+        : 'ninguna',
+    );
+
+    if (target) {
+      // El punto de la pantalla lo dice el croquis: si el croquis y las zonas
+      // no coinciden, el toque cae en otro edificio.
+      const tapPoint = screenOfArtwork(rasterAfter, target.artwork);
+      await page.mouse.click(tapPoint.x, tapPoint.y);
+      await page
+        .locator('[role="dialog"]')
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .catch(() => {});
+      const dialogText =
+        (await page.locator('[role="dialog"]').count()) > 0
+          ? await textOf(page, '[role="dialog"]')
+          : '';
+      record(
+        vp,
+        'un toque después del zoom cae en la zona que señala el catálogo',
+        dialogText.includes(target.label),
+        `el diálogo dice "${target.label}"`,
+        dialogText.slice(0, 140) ||
+          `no se abrió ningún diálogo (toque en ${tapPoint.x.toFixed(0)}, ${tapPoint.y.toFixed(0)})`,
+      );
+      await page.keyboard.press('Escape');
+      await page
+        .locator('[role="dialog"]')
+        .waitFor({ state: 'detached' })
+        .catch(() => {});
+    }
 
     /* ── 4. Un arrastre en el croquis NO crea un pin ─────────────────── */
     const freePoint = await page.evaluate(() => {
@@ -607,6 +867,8 @@ async function runJourney(browser, viewport) {
 
     if (freePoint) {
       const before = await artworkTransform(page);
+      const rasterPre = await rasterBox(page);
+      const layerPre = await artworkLayerBox(page);
       const pinsBefore = await pinCount(page);
       const lostBefore = await countOf(page, t('header-lost-count'));
       await page.mouse.move(freePoint.x, freePoint.y);
@@ -615,6 +877,8 @@ async function runJourney(browser, viewport) {
       await page.mouse.up();
       await sleep(250);
       const after = await artworkTransform(page);
+      const rasterPost = await rasterBox(page);
+      const layerPost = await artworkLayerBox(page);
       const pinsAfter = await pinCount(page);
       const lostAfter = await countOf(page, t('header-lost-count'));
       record(
@@ -623,6 +887,23 @@ async function runJourney(browser, viewport) {
         before !== after,
         'el transform de la capa cambia',
         `antes=${before?.match(/transform: [^;]+/)?.[0] ?? 'null'} después=${after?.match(/transform: [^;]+/)?.[0] ?? 'null'}`,
+      );
+      const rasterDelta = {
+        x: rasterPost.box.left - rasterPre.box.left,
+        y: rasterPost.box.top - rasterPre.box.top,
+      };
+      const layerDelta = {
+        x: layerPost.left - layerPre.left,
+        y: layerPost.top - layerPre.top,
+      };
+      record(
+        vp,
+        'el arrastre mueve el croquis y las zonas juntas',
+        Math.abs(rasterDelta.x - layerDelta.x) <= 2 &&
+          Math.abs(rasterDelta.y - layerDelta.y) <= 2 &&
+          Math.abs(layerDelta.x) + Math.abs(layerDelta.y) > 1,
+        'el croquis y la capa se mueven lo mismo (2px)',
+        `croquis (${rasterDelta.x.toFixed(1)}, ${rasterDelta.y.toFixed(1)}) zonas (${layerDelta.x.toFixed(1)}, ${layerDelta.y.toFixed(1)})`,
       );
       record(
         vp,
@@ -638,6 +919,7 @@ async function runJourney(browser, viewport) {
         '0 diálogos',
         `${await page.locator('[role="dialog"]').count()} diálogo(s)`,
       );
+      await checkOverflow(page, vp, 'map-pan');
     }
 
     /* ── 5. Recarga: el croquis vuelve a su estado inicial ───────────── */
