@@ -197,21 +197,28 @@ export function pointInPolygon(point, polygon) {
 }
 
 /**
- * The zone whose polygon contains the point, or null when the tap landed on
+ * The zone whose shape contains the point, or null when the tap landed on
  * open ground; when zones overlap the smallest one wins, so a tap aimed at a
  * small building never resolves to the block around it.
+ *
+ * A construction the plan draws in pieces carries every piece as a fragment:
+ * a tap on the small wing of a building cut in half by its own label still
+ * resolves that building. A zone without fragments keeps its polygon.
  */
 export function zoneAtPoint(point, zones) {
   let match = null;
   let matchArea = Infinity;
 
   for (const zone of zones ?? []) {
-    if (!zone?.polygon) continue;
-    if (!pointInPolygon(point, zone.polygon)) continue;
-    const area = polygonArea(zone.polygon);
-    if (area < matchArea) {
-      match = zone;
-      matchArea = area;
+    const shapes = zone?.fragments?.length ? zone.fragments : [zone?.polygon];
+    for (const shape of shapes) {
+      if (!shape) continue;
+      if (!pointInPolygon(point, shape)) continue;
+      const area = polygonArea(shape);
+      if (area < matchArea) {
+        match = zone;
+        matchArea = area;
+      }
     }
   }
   return match;

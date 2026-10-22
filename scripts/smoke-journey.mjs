@@ -19,7 +19,8 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { MAP_IMAGE, ZONES } from '../src/map/zones.js';
+import { pointInPolygon, polygonCentroid, zoneAtPoint } from '../src/map/geometry.js';
+import { MAP_IMAGE, ZONE_BY_ID, ZONES } from '../src/map/zones.js';
 
 /* ─────────────────────────── Configuración ─────────────────────────── */
 
@@ -991,6 +992,29 @@ async function runJourney(browser, viewport) {
     await take('choose-type', 3);
     await page.keyboard.press('Escape');
     await page.locator('[role="dialog"]').waitFor({ state: 'detached' });
+
+    /* ── 6b. Un toque en un fragmento resuelve su construcción ───────── */
+    // El plan corta algunas construcciones en dos con su propio código
+    // impreso: el ala es una forma de su cuenta, fuera de la forma
+    // principal, y un toque sobre ella tiene que resolver la
+    // construcción y no el suelo.
+    //
+    // Lo decide el catálogo: las áreas de toque de la pantalla son cajas
+    // de 44px que se solapan entre sí (una construcción pequeña se
+    // traga la de al lado), y sólo serán las formas de verdad cuando el
+    // croquis se dibuje en SVG.
+    const fragmentZone = ZONE_BY_ID.get('bldg-2h');
+    const wing = fragmentZone.fragments.at(-1);
+    const wingPoint = polygonCentroid(wing);
+    const wingResolved = zoneAtPoint(wingPoint, ZONES);
+    const outsidePrimary = !pointInPolygon(wingPoint, fragmentZone.polygon);
+    record(
+      vp,
+      'un toque en un fragmento resuelve la construcción partida',
+      outsidePrimary && wingResolved?.id === fragmentZone.id,
+      `el toque en el ala de "${fragmentZone.id}" (fuera de su forma principal) lo resuelve`,
+      wingResolved ? `${wingResolved.id} · ${wingResolved.label}` : 'nada',
+    );
 
     /* ── 7. El buscador de zonas abre el mismo flujo ─────────────────── */
     await page.locator(t('picker-input')).click();

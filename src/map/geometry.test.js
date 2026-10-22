@@ -321,6 +321,63 @@ describe('zoneAtPoint', () => {
   });
 });
 
+describe('zoneAtPoint with fragments', () => {
+  // The plan cuts some constructions in half with their own printed label:
+  // the wing is a shape of its own, and a tap on it still resolves the
+  // building it belongs to.
+  const WING = [
+    [0, 0],
+    [40, 0],
+    [40, 20],
+    [0, 20],
+  ];
+  const BODY = [
+    [60, 0],
+    [160, 0],
+    [160, 60],
+    [60, 60],
+  ];
+  const FRAGMENTED = {
+    id: 'bldg-2h',
+    polygon: BODY,
+    fragments: [BODY, WING],
+  };
+
+  it('resolves the building from a fragment that is not its polygon', () => {
+    expect(zoneAtPoint({ x: 20, y: 10 }, [FRAGMENTED])?.id).toBe('bldg-2h');
+  });
+
+  it('resolves the building from its primary fragment too', () => {
+    expect(zoneAtPoint({ x: 100, y: 30 }, [FRAGMENTED])?.id).toBe('bldg-2h');
+  });
+
+  it('ignores the fragments of a zone the point is not on', () => {
+    expect(zoneAtPoint({ x: 300, y: 30 }, [FRAGMENTED])).toBeNull();
+  });
+
+  it('keeps resolving the zones that carry no fragments', () => {
+    expect(zoneAtPoint({ x: 250, y: 260 }, ZONES)?.id).toBe('bldg-2k');
+  });
+
+  it('picks the smallest shape that holds the point', () => {
+    const overlapping = {
+      id: 'bldg-2h',
+      polygon: BODY,
+      fragments: [
+        BODY,
+        [
+          [70, 10],
+          [90, 10],
+          [90, 30],
+          [70, 30],
+        ],
+      ],
+    };
+    expect(zoneAtPoint({ x: 80, y: 20 }, [overlapping])?.id).toBe('bldg-2h');
+    expect(zoneAtPoint({ x: 120, y: 40 }, [overlapping])?.id).toBe('bldg-2h');
+  });
+});
+
 describe('zoneToPercent', () => {
   it('maps a box covering the whole artwork to a full-size placement', () => {
     expect(

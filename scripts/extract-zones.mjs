@@ -455,7 +455,16 @@ const buildingBlobs = components(dilate(buildingMask, 1))
   .map((c) => {
     const box = boxOf(c, buildingMask);
     if (!box) return null;
-    return { ...box, index: 0, pixels: c.pixels.filter(([x, y]) => buildingMask[y * W + x]) };
+    // `pixels` are the pixels of the orange fill and `dilated` the whole
+    // component: the footprint is traced from the second one (the code
+    // printed over the construction closes the holes of the first one) and
+    // the box is measured on the first one.
+    return {
+      ...box,
+      index: 0,
+      pixels: c.pixels.filter(([x, y]) => buildingMask[y * W + x]),
+      dilated: c.pixels,
+    };
   })
   .filter((b) => b && b.area >= 15 && b.width >= 4 && b.height >= 3)
   .filter((b) => !inExcluded(b.x, b.y) && !inExcluded(b.x + b.width - 1, b.y + b.height - 1))
@@ -526,6 +535,316 @@ const buildingBoxes = [...groups.values()].map((members) => {
     members,
   };
 });
+
+/* ------------------------------------------------------------------ *
+ * Footprints: the shape the plan draws
+ *
+ * The orange fill of the plan IS the shape of the construction, and
+ * the generator already knows which pixel belongs to which building.
+ * The footprint is therefore TRACED from those pixels, never drawn by
+ * hand: a hand-traced vector was already rejected for this project
+ * because it produced an unfaithful redraw.
+ *
+ * A building is a component of the orange fill DILATED by one pixel:
+ * the dilation is what bridges the code the plan prints over the
+ * construction, whose strokes are one or two pixels wide. The
+ * footprint of that component is:
+ *
+ *   1. the component with its holes filled: the printed code is a HOLE
+ *      of the orange fill and the footprint ignores it, so the shape
+ *      the plan draws is the shape the footprint carries,
+ *   2. eroded by one pixel, which takes the border back: the outline
+ *      lands on the orange and NOT on the anti-aliased rim around it,
+ *      which is the trick the boxes of the catalogue already use,
+ *   3. traced along the cracks between the pixels and simplified.
+ *
+ * The drop shadow the plan paints under every construction is black
+ * and touches the paper: it is never part of the orange, so it never
+ * reaches the footprint.
+ *
+ * The constructions the plan cuts in half with their own label arrive
+ * in pieces: every piece is kept, and the biggest one is the primary
+ * shape.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The tolerance of the simplification, in pixels of the plan.
+ *
+ * One pixel is the smallest distance the plan can show: it is the
+ * width of the printed strokes and the height of the stair-steps of
+ * the scan, so a larger tolerance would erase real corners of the
+ * buildings and a smaller one would only keep the noise of the JPEG.
+ * The vertices of a simplified ring are always vertices of the traced
+ * ring, so the simplified shape never leaves the box of its building.
+ */
+const SIMPLIFY_TOLERANCE = 1;
+
+/** The signed area of a ring; the outline of a shape runs clockwise. */
+function ringArea(ring) {
+  let sum = 0;
+  for (let index = 0; index < ring.length; index += 1) {
+    const current = ring[index];
+    const next = ring[(index + 1) % ring.length];
+    sum += current[0] * next[1] - next[0] * current[1];
+  }
+  return sum / 2;
+}
+
+/**
+ * The erosion of a set of pixels by one: the shape without its border.
+ * It is what takes the one pixel of dilation back, so the outline lands
+ * on the orange and not on the rim the scan paints around it.
+ */
+function erodePixels(pixels) {
+  const inside = new Set(pixels.map(([x, y]) => `${x},${y}`));
+  const out = [];
+  for (const [x, y] of pixels) {
+    let solid = true;
+    for (let dy = -1; dy <= 1 && solid; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!inside.has(`${x + dx},${y + dy}`)) {
+          solid = false;
+          break;
+        }
+      }
+    }
+    if (solid) out.push([x, y]);
+  }
+  return out;
+}
+
+/** The pixels the outline of a shape closes around: its holes. */
+function fillHoles(pixels) {
+  if (!pixels.length) return pixels;
+  const inside = new Set(pixels.map(([x, y]) => `${x},${y}`));
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of pixels) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const outside = new Set();
+  const stack = [];
+  for (let x = minX; x <= maxX; x++) stack.push([x, minY], [x, maxY]);
+  for (let y = minY; y <= maxY; y++) stack.push([minX, y], [maxX, y]);
+  while (stack.length) {
+    const [x, y] = stack.pop();
+    if (x < minX || y < minY || x > maxX || y > maxY) continue;
+    const key = `${x},${y}`;
+    if (outside.has(key) || inside.has(key)) continue;
+    outside.add(key);
+    stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+  }
+  const filled = [...pixels];
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const key = `${x},${y}`;
+      if (!inside.has(key) && !outside.has(key)) filled.push([x, y]);
+    }
+  }
+  return filled;
+}
+
+/** The connected pieces of a set of pixels, four neighbours each. */
+function connectedPieces(pixels) {
+  const remaining = new Map();
+  for (const [x, y] of pixels) remaining.set(`${x},${y}`, [x, y]);
+  const pieces = [];
+  while (remaining.size) {
+    const [startKey, start] = remaining.entries().next().value;
+    remaining.delete(startKey);
+    const piece = [start];
+    const stack = [start];
+    while (stack.length) {
+      const [x, y] = stack.pop();
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
+        const key = `${x + dx},${y + dy}`;
+        const next = remaining.get(key);
+        if (!next) continue;
+        remaining.delete(key);
+        piece.push(next);
+        stack.push(next);
+      }
+    }
+    pieces.push(piece);
+  }
+  return pieces;
+}
+
+/**
+ * The outline of a shape, followed along the cracks between its
+ * pixels: the ring is a list of corners, so it lives in the same
+ * units as the plan. The interior stays on the right of every edge,
+ * so the outline of a shape runs clockwise and its holes the other
+ * way.
+ */
+function traceOutline(pixels) {
+  const inside = new Set(pixels.map(([x, y]) => `${x},${y}`));
+  const has = (x, y) => inside.has(`${x},${y}`);
+
+  const outgoing = new Map();
+  const link = (fromX, fromY, toX, toY) => {
+    const key = `${fromX},${fromY}`;
+    const edge = [toX, toY, toX - fromX, toY - fromY];
+    const list = outgoing.get(key);
+    if (list) list.push(edge);
+    else outgoing.set(key, [edge]);
+  };
+  for (const [x, y] of pixels) {
+    if (!has(x, y - 1)) link(x, y, x + 1, y);
+    if (!has(x + 1, y)) link(x + 1, y, x + 1, y + 1);
+    if (!has(x, y + 1)) link(x + 1, y + 1, x, y + 1);
+    if (!has(x - 1, y)) link(x, y + 1, x, y);
+  }
+
+  const pending = new Map([...outgoing].map(([key, list]) => [key, [...list]]));
+  const takeEdge = (key, dx, dy) => {
+    const list = pending.get(key);
+    if (!list?.length) return null;
+    // The interior hugs the right: the sharpest turn to the right comes
+    // first, and the corner of a shape that only touches itself in one
+    // point is cut instead of crossed.
+    const right = [-dy, dx];
+    const left = [dy, -dx];
+    const order = [right, [dx, dy], left, [-dx, -dy]];
+    for (const [ox, oy] of order) {
+      const index = list.findIndex((edge) => edge[2] === ox && edge[3] === oy);
+      if (index !== -1) return list.splice(index, 1)[0];
+    }
+    return null;
+  };
+
+  const rings = [];
+  for (const startKey of outgoing.keys()) {
+    while (pending.get(startKey)?.length) {
+      const first = pending.get(startKey).shift();
+      const ring = [];
+      let key = startKey;
+      let edge = first;
+      for (;;) {
+        const [atX, atY] = key.split(',');
+        ring.push([Number(atX), Number(atY)]);
+        const next = takeEdge(`${edge[0]},${edge[1]}`, edge[2], edge[3]);
+        if (!next) break;
+        if (`${next[0]},${next[1]}` === startKey) break;
+        key = `${next[0]},${next[1]}`;
+        edge = next;
+      }
+      if (ring.length >= 3) rings.push(ring);
+    }
+  }
+  return rings;
+}
+
+/** The squared distance of a point to a segment. */
+function segmentDistance(point, start, end) {
+  const dx = end[0] - start[0];
+  const dy = end[1] - start[1];
+  const length = dx * dx + dy * dy;
+  if (length === 0) {
+    return (point[0] - start[0]) ** 2 + (point[1] - start[1]) ** 2;
+  }
+  let t = ((point[0] - start[0]) * dx + (point[1] - start[1]) * dy) / length;
+  t = Math.max(0, Math.min(1, t));
+  const px = start[0] + t * dx;
+  const py = start[1] + t * dy;
+  return (point[0] - px) ** 2 + (point[1] - py) ** 2;
+}
+
+/** The Douglas-Peucker simplification of an open chain of points. */
+function simplifyChain(points, tolerance) {
+  if (points.length < 3) return [...points];
+  const limit = tolerance * tolerance;
+  const keep = Array.from({ length: points.length }, () => false);
+  keep[0] = true;
+  keep[points.length - 1] = true;
+  const stack = [[0, points.length - 1]];
+  while (stack.length) {
+    const [first, last] = stack.pop();
+    let worst = 0;
+    let index = -1;
+    for (let i = first + 1; i < last; i++) {
+      const distance = segmentDistance(points[i], points[first], points[last]);
+      if (distance > worst) {
+        worst = distance;
+        index = i;
+      }
+    }
+    if (worst > limit && index !== -1) {
+      keep[index] = true;
+      stack.push([first, index], [index, last]);
+    }
+  }
+  return points.filter((_, index) => keep[index]);
+}
+
+/**
+ * The simplified outline of a shape. A ring is closed, so it is
+ * simplified as two chains between the point and the point of the ring
+ * that is the furthest away from it: the ends of a chain drag the
+ * shape towards the straight line that joins them.
+ */
+function simplifyRing(ring, tolerance) {
+  if (ring.length < 4) return [...ring];
+  let far = 1;
+  let best = -1;
+  for (let index = 1; index < ring.length; index++) {
+    const distance = (ring[index][0] - ring[0][0]) ** 2 + (ring[index][1] - ring[0][1]) ** 2;
+    if (distance > best) {
+      best = distance;
+      far = index;
+    }
+  }
+  const first = simplifyChain(ring.slice(0, far + 1), tolerance);
+  const second = simplifyChain([...ring.slice(far), ring[0]], tolerance);
+  const simplified = [...first, ...second.slice(1, -1)];
+  const cleaned = simplified.filter(
+    (point, index) =>
+      index === 0 || point[0] !== simplified[index - 1][0] || point[1] !== simplified[index - 1][1],
+  );
+  return cleaned.length >= 3 && Math.abs(ringArea(cleaned)) > 0 ? cleaned : ring;
+}
+
+/**
+ * The footprint of a construction: the outline of every piece of it the
+ * plan draws, the biggest one first.
+ *
+ * A speck of the scan is not a wing of a building, so a piece that is
+ * smaller than a tenth of the biggest one is dropped: the printed
+ * labels cut the constructions in pieces, and those pieces are kept,
+ * but the dust of the JPEG is not.
+ */
+const FRAGMENT_SHARE = 0.1;
+
+function footprintOf(host) {
+  const rings = [];
+  for (const member of host.members) {
+    // The holes of the component are the printed codes, and the
+    // footprint ignores them. The erosion takes the dilation back, so
+    // the outline lands on the orange fill and not on its rim.
+    const silhouette = erodePixels(fillHoles(member.dilated));
+    for (const piece of connectedPieces(silhouette)) {
+      for (const ring of traceOutline(piece)) {
+        const area = Math.abs(ringArea(ring));
+        if (area > 0) rings.push({ ring, area });
+      }
+    }
+  }
+  rings.sort((left, right) => right.area - left.area);
+  const biggest = rings[0]?.area ?? 0;
+  return rings
+    .filter((entry) => entry.area >= biggest * FRAGMENT_SHARE)
+    .map((entry) => simplifyRing(entry.ring, SIMPLIFY_TOLERANCE));
+}
 
 // --- meeting points: green cross -------------------------------------
 const meetingMask = new Uint8Array(W * H);
@@ -966,6 +1285,14 @@ function unitOf(box) {
 const zones = [];
 const usedBoxes = new Set();
 
+/** The corners of a box, the shape a zone has when nothing was traced. */
+const boxRing = (box) => [
+  [box.x, box.y],
+  [box.x + box.width, box.y],
+  [box.x + box.width, box.y + box.height],
+  [box.x, box.y + box.height],
+];
+
 for (const [code, host] of bound) {
   usedBoxes.add(host);
   const unit = unitOf(host);
@@ -976,6 +1303,10 @@ for (const [code, host] of bound) {
   // library — and A as the "Edificio Administrativo", where a Dean's office
   // sits. Both readings come from the plan, magnified 4x.
   const safePoint = code === 'A' || code === 'AF';
+  // The footprint: the outline of every piece the plan draws of this
+  // construction, the biggest one first. The box stays as it was: it is the
+  // hit area and the keyboard reading order depend on it.
+  const fragments = footprintOf(host);
   zones.push({
     id: `bldg-${slug(code)}`,
     code,
@@ -985,6 +1316,8 @@ for (const [code, host] of bound) {
     safePoint,
     label: `${code} · ${name}`,
     box: { x: host.x, y: host.y, width: host.width, height: host.height },
+    polygon: fragments[0] ?? boxRing(host),
+    fragments,
   });
 }
 
@@ -992,6 +1325,7 @@ for (const [code, host] of bound) {
 // catalogue with a null code so the map never loses a footprint.
 const unknownBuildings = buildingBoxes.filter((host) => !usedBoxes.has(host));
 unknownBuildings.forEach((host, index) => {
+  const fragments = footprintOf(host);
   zones.push({
     id: `bldg-unknown-${String(index + 1).padStart(2, '0')}`,
     code: null,
@@ -1001,6 +1335,8 @@ unknownBuildings.forEach((host, index) => {
     safePoint: false,
     label: 'Edificio sin código legible',
     box: { x: host.x, y: host.y, width: host.width, height: host.height },
+    polygon: fragments[0] ?? boxRing(host),
+    fragments,
   });
 });
 
@@ -1016,6 +1352,7 @@ meetingSorted.forEach((box, index) => {
     safePoint: false,
     label: `Punto de reunión ${index + 1}`,
     box: { x: box.x, y: box.y, width: box.width, height: box.height },
+    polygon: boxRing(box),
   });
 });
 
@@ -1030,6 +1367,7 @@ moduleSorted.forEach((box, index) => {
     safePoint: false,
     label: `Módulo de internet ${index + 1}`,
     box: { x: box.x, y: box.y, width: box.width, height: box.height },
+    polygon: boxRing(box),
   });
 });
 
@@ -1043,6 +1381,7 @@ for (const lot of parkingBoxes) {
     safePoint: false,
     label: `Estacionamiento ${lot.code}`,
     box: lot.box,
+    polygon: boxRing(lot.box),
   });
 }
 
@@ -1056,6 +1395,7 @@ for (const [index, box] of trackBoxes.entries()) {
     safePoint: false,
     label: 'Pista de Atletismo',
     box: { x: box.x, y: box.y, width: box.width, height: box.height },
+    polygon: boxRing(box),
   });
 }
 
@@ -1089,6 +1429,9 @@ function slug(code) {
  * ------------------------------------------------------------------ */
 const quote = (value) => `'${String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
+/** A ring of the catalogue: the corners of a shape, in the units of the plan. */
+const ringLiteral = (ring) => `[${ring.map(([x, y]) => `[${x}, ${y}]`).join(', ')}]`;
+
 const zoneLiteral = (zone) => {
   const { x, y, width, height } = zone.box;
   const lines = [
@@ -1101,9 +1444,14 @@ const zoneLiteral = (zone) => {
     `    safePoint: ${zone.safePoint},`,
     `    label: ${quote(zone.label)},`,
     `    box: { x: ${x}, y: ${y}, width: ${width}, height: ${height} },`,
-    `    polygon: [[${x}, ${y}], [${x + width}, ${y}], [${x + width}, ${y + height}], [${x}, ${y + height}]],`,
-    '  },',
+    `    polygon: ${ringLiteral(zone.polygon)},`,
   ];
+  // Only the constructions carry fragments: the other zones keep the shape
+  // of their box, and a zone without fragments keeps working as it did.
+  if (zone.fragments) {
+    lines.push(`    fragments: [${zone.fragments.map(ringLiteral).join(', ')}],`);
+  }
+  lines.push('  },');
   return lines.join('\n');
 };
 
@@ -1263,6 +1611,23 @@ console.log(
   `codes assigned ${bound.size}/${PRINTED_CODES.length}, uncertain: ${
     uncertainCodes.length ? uncertainCodes.join(', ') : 'none'
   }`,
+);
+const fragmented = zones.filter((zone) => (zone.fragments?.length ?? 0) > 1);
+console.log(
+  `footprints: ${zones.filter((zone) => zone.fragments).length} constructions traced at ${SIMPLIFY_TOLERANCE}px`,
+);
+console.log(
+  'buildings with more than one fragment:',
+  fragmented.length
+    ? fragmented
+        .map(
+          (zone) =>
+            `${zone.code ?? zone.id}=${zone.fragments.length}[${zone.fragments
+              .map((ring) => Math.round(Math.abs(ringArea(ring))))
+              .join(',')}]`,
+        )
+        .join(' ')
+    : 'none',
 );
 console.log(
   'internet module boxes:',
