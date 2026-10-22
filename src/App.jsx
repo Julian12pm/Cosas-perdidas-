@@ -23,6 +23,18 @@ import ZoneLegend from './components/ZoneLegend.jsx';
 import ZonePicker from './components/ZonePicker.jsx';
 import { ErrorState, LoadingState } from './components/StateMessage.jsx';
 import {
+  confirmDelivery,
+  createMatch,
+  createReport,
+  decideClaim,
+  depositAtSafePoint,
+  fileClaim,
+  getContactCard,
+  getMe,
+  isApiConfigured,
+  logout,
+} from './api.js';
+import {
   RELEASE_KEY_LENGTH,
   RELEASE_KEY_MAX_ATTEMPTS,
   contactFor,
@@ -31,6 +43,7 @@ import {
   generateUnlockCode,
   loadCampusData,
   reporterAlias,
+  reportFromApi,
 } from './data.js';
 import { artworkToPercent, polygonCentroid, zoneAtPoint } from './map/geometry.js';
 import { MAP_IMAGE, ZONES } from './map/zones.js';
@@ -43,13 +56,61 @@ import { MAP_IMAGE, ZONES } from './map/zones.js';
  * reporte sigue en "Mis reportes".
  */
 
-const API_URL = import.meta.env.VITE_API_URL ?? '';
-
 /** Los estados en los que un reporte sigue en el mapa. */
 const ON_MAP_STATUSES = new Set(['open', 'pending_claim', 'in_custody']);
 
+/** Los puntos seguros del campus: el catálogo es local, nunca se pide por red. */
+const SAFE_POINTS = ZONES.filter((zone) => zone.safePoint);
+
 /** Dónde se guarda la sesión de demostración entre recargas. */
 const SESSION_KEY = 'objetos-perdidos:session';
+
+/**
+ * Lo que el API contesta, en el idioma del estudiante.
+ *
+ * El cliente ya sabe la clase del fallo (sesión, red, conflicto); aquí sólo
+ * se traduce el motivo que el servidor puso en su respuesta.
+ */
+const API_ERROR_MESSAGES = {
+  not_institutional: 'El acceso es sólo para el correo institucional del TECNM.',
+  unknown_zone: 'Esa zona no existe en el croquis del campus. Elige otra.',
+  invalid_report_status: 'Ese reporte ya no está disponible: ya fue reclamado o cerrado.',
+  invalid_claim_status: 'Ese reclamo ya se decidió.',
+  self_claim: 'No puedes reclamar un reporte que es tuyo.',
+  match_exists: 'Esos dos reportes ya estaban enlazados.',
+  no_release_key: 'Este reporte no tiene clave de liberación.',
+  no_matched_found_report: 'Falta el enlace con el reporte del objeto encontrado.',
+  already_used: 'Esta clave ya se usó: la entrega ya estaba confirmada.',
+  too_many_attempts: 'Se agotaron los intentos. Pide al dueño otra clave.',
+  locked: 'La clave está en espera. Inténtalo más tarde.',
+  expired: 'El reporte venció y la entrega ya no se puede confirmar.',
+  invalid_safe_point: 'Ese lugar no es un punto seguro del campus.',
+};
+
+/** El motivo del API, traducido; el texto de reserva cuando no lo conoce. */
+function apiMessage(error, fallback) {
+  const reason = error?.payload?.error;
+  const remaining = error?.payload?.remaining;
+
+  if (reason === 'wrong_code') {
+    if (Number.isFinite(remaining)) {
+      return `Clave incorrecta. ${remaining === 1 ? 'Te queda' : 'Te quedan'} ${remaining} ${
+        remaining === 1 ? 'intento' : 'intentos'
+      }.`;
+    }
+    return 'Clave incorrecta. Revisa los dígitos que te dictó el dueño.';
+  }
+  if (reason && API_ERROR_MESSAGES[reason]) return API_ERROR_MESSAGES[reason];
+  return fallback;
+}
+
+/** El punto del pin en los píxeles del artwork: así lo guarda el API. */
+function artworkPoint(pending) {
+  return {
+    x: ((pending?.x ?? 0) / 100) * MAP_IMAGE.width,
+    y: ((pending?.y ?? 0) / 100) * MAP_IMAGE.height,
+  };
+}
 
 /* ────────────────────────── Componente Pin ────────────────────────── */
 function MapPin({ report, onClick }) {
@@ -205,7 +266,7 @@ function PinTypeModal({ pending, onClose, onSelect }) {
 /* ──────────────── Modal: Formulario del reporte ──────────────── */
 // El mismo formulario para el pin rojo y para el verde: sólo cambian el copy,
 // el dato ciego que pide el verde y el color del botón.
-function ReportModal({ kind, session, onClose, onSubmit, offline = false }) {
+function ReportModal({ kind, session, onClose, onSubmit, offline = false, error = '' }) {
   const isFound = kind === 'found';
 
   return (
@@ -226,6 +287,16 @@ function ReportModal({ kind, session, onClose, onSubmit, offline = false }) {
         </span>
       }
     >
+      {error && (
+        <p
+          data-testid="report-form-error"
+          role="alert"
+          className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-2.5 text-sm text-red-300"
+        >
+          {error}
+        </p>
+      )}
+
       {isFound && (
         <div className="mb-4 flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5">
           <div className="mt-0.5 flex-shrink-0">
@@ -285,14 +356,150 @@ function ReleaseKeyModal({ report, onClose }) {
   );
 }
 
+/* ─────────── Modal: el reclamo de un objeto que es tuyo ─────────── */
+// El reclamo se apoya en el dato ciego: el dueño del objeto lo comparó con
+// lo que guardó en privado y decide. El API exige que sea el dueño del
+// reporte perdido quien lo apruebe.
+function ClaimModal({ report, foundReports, onClose, onSubmit }) {
+  const [blindDetail, setBlindDetail] = useState('');
+  const [message, setMessage] = useState('');
+  const [foundId, setFoundId] = useState(foundReports[0]?.id ?? '');
+  const [error, setError] = useState('');
+  const [sending, setSending] = useState(false);
+
+  const blindId = useId();
+  const messageId = useId();
+  const foundId2 = useId();
+
+  const ready = blindDetail.trim().length > 0;
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!ready || sending) return;
+
+    setSending(true);
+    setError('');
+    const result = await onSubmit(report, {
+      providedBlindDetail: blindDetail.trim(),
+      message: message.trim(),
+      foundReportId: foundId || null,
+    });
+    setSending(false);
+
+    if (!result?.ok) setError(result?.error ?? 'No pudimos enviar el reclamo.');
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Reclamar este objeto"
+      description={`${report.item} · ${report.zoneLabel ?? 'terreno libre'}`}
+      testId="claim-modal"
+    >
+      <form onSubmit={submit} className="space-y-4">
+        <div>
+          <label htmlFor={blindId} className="mb-1.5 block text-sm font-medium text-surface-300">
+            Dato ciego *
+          </label>
+          <textarea
+            id={blindId}
+            data-testid="claim-blind-detail"
+            value={blindDetail}
+            onChange={(event) => setBlindDetail(event.target.value)}
+            rows={2}
+            required
+            placeholder="Marca, color, qué hay dentro: lo que sólo el dueño sabe."
+            className="w-full resize-none rounded-xl border border-input-border bg-surface-700/50 px-4 py-3 text-base text-white placeholder-surface-500 focus:outline-none focus:ring-2 focus:ring-focus"
+          />
+          <p className="mt-1.5 text-xs leading-relaxed text-text-muted">
+            El dueño lo compara con lo que guardó en privado: por eso hace falta el dato y no sólo
+            la palabra.
+          </p>
+        </div>
+
+        {foundReports.length > 0 && (
+          <div>
+            <label htmlFor={foundId2} className="mb-1.5 block text-sm font-medium text-surface-300">
+              ¿Es el objeto que encontraste?
+            </label>
+            <select
+              id={foundId2}
+              data-testid="claim-found-report"
+              value={foundId}
+              onChange={(event) => setFoundId(event.target.value)}
+              className="min-h-[44px] w-full rounded-xl border border-input-border bg-surface-700/50 px-4 py-3 text-base text-white focus:outline-none focus:ring-2 focus:ring-focus"
+            >
+              {foundReports.map((found) => (
+                <option key={found.id} value={found.id}>
+                  {found.item}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs leading-relaxed text-text-muted">
+              El enlace une tu reporte de hallazgo con el objeto perdido: es lo que permite
+              confirmar la entrega después.
+            </p>
+          </div>
+        )}
+
+        <div>
+          <label htmlFor={messageId} className="mb-1.5 block text-sm font-medium text-surface-300">
+            Mensaje (opcional)
+          </label>
+          <textarea
+            id={messageId}
+            data-testid="claim-message"
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            rows={2}
+            placeholder="Dónde lo encontraste, cuándo…"
+            className="w-full resize-none rounded-xl border border-input-border bg-surface-700/50 px-4 py-3 text-base text-white placeholder-surface-500 focus:outline-none focus:ring-2 focus:ring-focus"
+          />
+        </div>
+
+        {error && (
+          <p data-testid="claim-error" role="alert" className="text-sm text-red-400">
+            {error}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          data-testid="claim-submit"
+          disabled={!ready || sending}
+          className="sticky bottom-0 inline-flex min-h-[44px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-lg transition-all disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+        >
+          {sending ? 'Enviando…' : 'Enviar el reclamo'}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
 /* ──────────────── Modal: detalle del reporte ──────────────── */
 // El panel se exporta para poder renderizarlo aislado en las pruebas.
-export function PinInfoModal({ report, session, linked, claims, onClose, onResolve, onAttempt }) {
+export function PinInfoModal({
+  report,
+  session,
+  linked,
+  claims,
+  onClose,
+  onResolve,
+  onAttempt,
+  apiMode = false,
+  onClaim,
+  onDeposit,
+  onSubmitKey,
+}) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [safePoint, setSafePoint] = useState('');
+  const [custodyError, setCustodyError] = useState('');
   const codeId = useId();
+  const safePointId = useId();
 
   const isLost = report.type === 'lost';
   const isMine = report.ownerId === session.id;
@@ -301,6 +508,7 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
   // Los intentos viven en el reporte de la clave: es la pareja (clave, portador)
   // quien los quema, y nunca se bloquea la clave del dueño.
   const keyReport = isLost ? report : linked;
+  const attemptsKnown = keyReport?.releaseMaxAttempts !== undefined;
   const attemptsLeft = keyReport
     ? Math.max(0, (keyReport.releaseMaxAttempts ?? 0) - (keyReport.releaseAttempts ?? 0))
     : 0;
@@ -309,7 +517,19 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
     setCopied(await copyToClipboard(report.releaseKey));
   };
 
-  const submitKey = () => {
+  const submitKey = async () => {
+    if (!linked) return;
+
+    // Con el API la clave la valida el servidor: la app no la conoce.
+    if (apiMode) {
+      const result = await onSubmitKey(linked.id, code);
+      if (!result?.ok) {
+        setCode('');
+        setError(result?.error ?? 'No pudimos confirmar la entrega.');
+      }
+      return;
+    }
+
     if (!linked?.releaseKey) return;
 
     if (code !== linked.releaseKey) {
@@ -326,6 +546,12 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
 
     setError('');
     setConfirming(true);
+  };
+
+  const deposit = async () => {
+    if (!safePoint) return;
+    const result = await onDeposit(report.id, safePoint);
+    if (!result?.ok) setCustodyError(result?.error ?? 'No pudimos dejar el objeto en resguardo.');
   };
 
   return (
@@ -375,7 +601,63 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
           <ContactCard contact={approved.contact} claimId={approved.id} single={false} />
         )}
 
-        {isMine && isLost && (
+        {apiMode && !isMine && isLost && report.status === 'open' && (
+          <button
+            type="button"
+            data-testid="claim-open"
+            onClick={() => onClaim(report)}
+            className="min-h-[44px] w-full cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-2.5 text-sm font-semibold text-surface-900 transition-all hover:from-brand-400 hover:to-brand-500 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          >
+            Es mío: quiero reclamarlo
+          </button>
+        )}
+
+        {apiMode && isMine && !isLost && (
+          <div className="rounded-xl border border-surface-600/50 bg-surface-700/40 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-surface-300">
+              Punto seguro
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-surface-300">
+              ¿No puedes coordinar la entrega? Deja el objeto en un punto seguro: el mapa dirá que
+              está en resguardo.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <label htmlFor={safePointId} className="sr-only">
+                Punto seguro
+              </label>
+              <select
+                id={safePointId}
+                data-testid="deposit-safe-point"
+                value={safePoint}
+                onChange={(event) => setSafePoint(event.target.value)}
+                className="min-h-[44px] flex-1 rounded-xl border border-input-border bg-surface-700/50 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-focus"
+              >
+                <option value="">Elige un punto seguro</option>
+                {SAFE_POINTS.map((zone) => (
+                  <option key={zone.id} value={zone.id}>
+                    {zone.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                data-testid="deposit-submit"
+                onClick={deposit}
+                disabled={!safePoint}
+                className="min-h-[44px] cursor-pointer rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2 text-sm font-semibold text-brand-200 transition-colors hover:bg-brand-500/20 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              >
+                Dejarlo en resguardo
+              </button>
+            </div>
+            {custodyError && (
+              <p data-testid="deposit-error" role="alert" className="mt-2 text-xs text-red-400">
+                {custodyError}
+              </p>
+            )}
+          </div>
+        )}
+
+        {isMine && isLost && report.releaseKey && (
           <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-3">
             <div className="flex items-center gap-2">
               <LockKeyholeIcon size={16} className="shrink-0" aria-hidden="true" />
@@ -397,10 +679,12 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
                 {copied ? 'Clave copiada' : 'Copiar clave'}
               </button>
             </div>
-            <p className="mt-2 text-xs text-text-muted">
-              Le quedan {attemptsLeft} de {report.releaseMaxAttempts} intentos a quien tiene el
-              objeto.
-            </p>
+            {attemptsKnown && (
+              <p className="mt-2 text-xs text-text-muted">
+                Le quedan {attemptsLeft} de {report.releaseMaxAttempts} intentos a quien tiene el
+                objeto.
+              </p>
+            )}
           </div>
         )}
 
@@ -469,7 +753,7 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' && code.length === RELEASE_KEY_LENGTH) {
                         event.preventDefault();
-                        submitKey();
+                        void submitKey();
                       }
                     }}
                     placeholder={'• '.repeat(RELEASE_KEY_LENGTH).trim()}
@@ -528,7 +812,7 @@ function NavButton({ active, children, ...rest }) {
 
 /** La sesión de demostración se guarda entre recargas; con API manda la cookie. */
 function readStoredSession() {
-  if (API_URL.length > 0) return null;
+  if (isApiConfigured()) return null;
   try {
     const raw = window.localStorage.getItem(SESSION_KEY);
     return raw ? JSON.parse(raw) : null;
@@ -537,24 +821,21 @@ function readStoredSession() {
   }
 }
 
+/**
+ * La sesión de demostración se guarda entre recargas; con API la cookie es la
+ * sesión, así que lo guardado se borra y no se confía de él.
+ */
 function storeSession(session) {
-  if (API_URL.length > 0) return;
   try {
+    if (isApiConfigured()) {
+      window.localStorage.removeItem(SESSION_KEY);
+      return;
+    }
     if (session) window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     else window.localStorage.removeItem(SESSION_KEY);
   } catch {
     // Sin almacenamiento la sesión vive sólo en memoria.
   }
-}
-
-/**
- * Una petición al API. Un 401 significa que la sesión ya no vale: la app
- * vuelve al acceso con un aviso, en lugar de quedarse en silencio.
- */
-async function apiFetch(path, onUnauthorized) {
-  const response = await fetch(`${API_URL}${path}`, { credentials: 'include' });
-  if (response.status === 401) onUnauthorized?.();
-  return response;
 }
 
 /** El navegador sabe si hay conexión, y avisa cuando la hay o deja de haberla. */
@@ -580,8 +861,10 @@ function useOnline() {
 /* ━━━━━━━━━━━━━━━━━━━━━━━━ APP PRINCIPAL ━━━━━━━━━━━━━━━━━━━━━━━━ */
 export default function App() {
   const [session, setSession] = useState(() => readStoredSession());
-  const [checking, setChecking] = useState(API_URL.length > 0);
+  const [checking, setChecking] = useState(() => isApiConfigured());
   const [sessionExpired, setSessionExpired] = useState(false);
+  // El API no contesta: la app no puede fingir que tiene sesión.
+  const [apiOffline, setApiOffline] = useState(false);
   const [reports, setReports] = useState([]);
   const [claims, setClaims] = useState([]);
   // loading | ready | error
@@ -589,9 +872,17 @@ export default function App() {
   const [view, setView] = useState('map');
   const [modal, setModal] = useState(null);
   const [pending, setPending] = useState(null);
+  // El enlace entre el hallazgo y el objeto perdido: lo guarda la app porque
+  // el API todavía no lo expone.
+  const [links, setLinks] = useState({});
+  // El error de la última acción: el del formulario o el de la bandeja.
+  const [reportError, setReportError] = useState('');
+  const [actionError, setActionError] = useState('');
   // La zona que la leyenda está iluminando en el croquis.
   const [highlightZoneId, setHighlightZoneId] = useState(null);
   const online = useOnline();
+  // Sin señal del navegador o sin respuesta del API: no hay nada fresco.
+  const isOffline = !online || apiOffline;
 
   /** El servidor ya no reconoce la sesión: se vuelve al acceso, avisando. */
   const handleUnauthorized = useCallback(() => {
@@ -610,19 +901,19 @@ export default function App() {
 
   // Con API configurada la cookie es la sesión: se recupera al cargar.
   useEffect(() => {
-    if (API_URL.length === 0) return undefined;
+    if (!isApiConfigured()) return undefined;
 
     let cancelled = false;
     const restore = async () => {
       try {
-        const response = await apiFetch('/auth/me', () => {
-          if (!cancelled) handleUnauthorized();
-        });
-        if (!response.ok) return;
-        const user = await response.json();
+        const user = await getMe();
         if (!cancelled) setSession(user);
-      } catch {
-        // Sin API alcanzable la pantalla de acceso explica el modo demostración.
+      } catch (error) {
+        if (cancelled) return;
+        // La sesión ya no vale: se vuelve al acceso con un aviso.
+        if (error.kind === 'unauthenticated') handleUnauthorized();
+        // El servidor no está: sin conexión, no hay sesión que fingir.
+        else if (error.kind === 'offline') setApiOffline(true);
       } finally {
         if (!cancelled) setChecking(false);
       }
@@ -646,16 +937,24 @@ export default function App() {
     // mientras llegan los datos nuevos.
     setCampus((previous) => (previous === 'ready' ? 'ready' : 'loading'));
     try {
-      const data = await loadCampusData();
+      const data = await loadCampusData(session);
       setReports(data.reports);
       setClaims(data.claims);
       setCampus('ready');
-    } catch {
+    } catch (error) {
+      // La sesión ya no vale: el servidor no reconoce la cookie.
+      if (error?.kind === 'unauthenticated') {
+        handleUnauthorized();
+        return;
+      }
       // Sin señal no es un fallo del campus: lo explica el aviso sin conexión.
-      const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      const offline =
+        (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+        error?.kind === 'offline';
+      if (offline) setApiOffline(true);
       setCampus(offline ? 'offline' : 'error');
     }
-  }, []);
+  }, [session, handleUnauthorized]);
 
   useEffect(() => {
     if (!session || !online) return;
@@ -663,9 +962,9 @@ export default function App() {
   }, [session, online, loadCampus]);
 
   const handleSignOut = useCallback(async () => {
-    if (API_URL.length > 0) {
+    if (isApiConfigured()) {
       try {
-        await fetch(`${API_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
+        await logout();
       } catch {
         // La sesión local se cierra igual.
       }
@@ -722,61 +1021,238 @@ export default function App() {
 
   const handleTypeSelect = useCallback((type) => setModal({ kind: type }), []);
 
-  const handleLostSubmit = useCallback(
-    ({ item, description }) => {
-      const report = {
-        id: `pin-${Date.now()}`,
-        type: 'lost',
-        x: pending?.x ?? 0,
-        y: pending?.y ?? 0,
-        zoneId: pending?.zone?.id ?? null,
-        zoneLabel: pending?.zone?.label ?? null,
-        item,
-        description,
-        ownerId: session.id,
-        alias: reporterAlias(session.id),
-        status: 'open',
-        timestamp: new Date().toISOString(),
-        releaseKey: generateUnlockCode(),
-        releaseAttempts: 0,
-        releaseMaxAttempts: RELEASE_KEY_MAX_ATTEMPTS,
-        blindDetail: null,
-      };
+  /**
+   * El fallo del API dice qué hacer: la sesión venció, no hay red, o el
+   * servidor rechazó con algo que el estudiante puede arreglar.
+   */
+  const handleApiFailure = useCallback(
+    (error, fallback) => {
+      if (error?.kind === 'unauthenticated') {
+        handleUnauthorized();
+        return 'Tu sesión venció. Vuelve a entrar con tu correo institucional para seguir.';
+      }
+      if (error?.kind === 'offline') {
+        setApiOffline(true);
+        return 'No pudimos conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.';
+      }
+      return apiMessage(error, fallback);
+    },
+    [handleUnauthorized],
+  );
 
-      setReports((prev) => [report, ...prev]);
-      setPending(null);
-      setModal({ kind: 'release-key', report });
+  /**
+   * Publica el reporte en el API.
+   *
+   * El API guarda el pin en los píxeles del artwork y devuelve la clave de
+   * liberación una sola vez: la app la muestra y la vuelve a guardar en
+   * memoria, nunca en el disco.
+   */
+  const publishReport = useCallback(
+    async (kind, { item, description, blindDetail }) => {
+      const zone = pending?.zone;
+      if (!zone) {
+        return { error: 'Elige una zona del croquis: el reporte se publica en una zona.' };
+      }
+
+      const point = artworkPoint(pending);
+      const created = await createReport({
+        kind,
+        title: item,
+        description,
+        ...(kind === 'found' ? { blindDetail } : {}),
+        zoneId: zone.id,
+        mapX: point.x,
+        mapY: point.y,
+      });
+
+      return {
+        report: {
+          ...reportFromApi(created, { session, owner: created }),
+          x: pending?.x ?? 0,
+          y: pending?.y ?? 0,
+          releaseKey: created.releaseKey ?? null,
+        },
+      };
     },
     [pending, session],
   );
 
-  const handleFoundSubmit = useCallback(
-    ({ item, description, blindDetail }) => {
-      const report = {
-        id: `pin-${Date.now()}`,
-        type: 'found',
-        x: pending?.x ?? 0,
-        y: pending?.y ?? 0,
-        zoneId: pending?.zone?.id ?? null,
-        zoneLabel: pending?.zone?.label ?? null,
-        item,
-        description,
-        // El dato ciego es privado: se guarda en el reporte, nunca se publica.
-        blindDetail,
-        ownerId: session.id,
-        alias: reporterAlias(session.id),
-        status: 'open',
-        timestamp: new Date().toISOString(),
-        releaseKey: null,
-        releaseAttempts: 0,
-        releaseMaxAttempts: RELEASE_KEY_MAX_ATTEMPTS,
-      };
+  const handleLostSubmit = useCallback(
+    async ({ item, description }) => {
+      if (!isApiConfigured()) {
+        const report = {
+          id: `pin-${Date.now()}`,
+          type: 'lost',
+          x: pending?.x ?? 0,
+          y: pending?.y ?? 0,
+          zoneId: pending?.zone?.id ?? null,
+          zoneLabel: pending?.zone?.label ?? null,
+          item,
+          description,
+          ownerId: session.id,
+          alias: reporterAlias(session.id),
+          status: 'open',
+          timestamp: new Date().toISOString(),
+          releaseKey: generateUnlockCode(),
+          releaseAttempts: 0,
+          releaseMaxAttempts: RELEASE_KEY_MAX_ATTEMPTS,
+          blindDetail: null,
+        };
 
-      setReports((prev) => [report, ...prev]);
-      setPending(null);
-      setModal(null);
+        setReports((prev) => [report, ...prev]);
+        setPending(null);
+        setModal({ kind: 'release-key', report });
+        return;
+      }
+
+      try {
+        const { report, error } = await publishReport('lost', { item, description });
+        if (error) {
+          setReportError(error);
+          return;
+        }
+        setReportError('');
+        setReports((prev) => [report, ...prev]);
+        setPending(null);
+        setModal({ kind: 'release-key', report });
+      } catch (failure) {
+        setReportError(
+          handleApiFailure(failure, 'No pudimos publicar el reporte. Inténtalo de nuevo.'),
+        );
+      }
     },
-    [pending, session],
+    [pending, session, publishReport, handleApiFailure],
+  );
+
+  const handleFoundSubmit = useCallback(
+    async ({ item, description, blindDetail }) => {
+      if (!isApiConfigured()) {
+        const report = {
+          id: `pin-${Date.now()}`,
+          type: 'found',
+          x: pending?.x ?? 0,
+          y: pending?.y ?? 0,
+          zoneId: pending?.zone?.id ?? null,
+          zoneLabel: pending?.zone?.label ?? null,
+          item,
+          description,
+          // El dato ciego es privado: se guarda en el reporte, nunca se publica.
+          blindDetail,
+          ownerId: session.id,
+          alias: reporterAlias(session.id),
+          status: 'open',
+          timestamp: new Date().toISOString(),
+          releaseKey: null,
+          releaseAttempts: 0,
+          releaseMaxAttempts: RELEASE_KEY_MAX_ATTEMPTS,
+        };
+
+        setReports((prev) => [report, ...prev]);
+        setPending(null);
+        setModal(null);
+        return;
+      }
+
+      try {
+        const { report, error } = await publishReport('found', { item, description, blindDetail });
+        if (error) {
+          setReportError(error);
+          return;
+        }
+        setReportError('');
+        setReports((prev) => [report, ...prev]);
+        setPending(null);
+        setModal(null);
+      } catch (failure) {
+        setReportError(
+          handleApiFailure(failure, 'No pudimos publicar el reporte. Inténtalo de nuevo.'),
+        );
+      }
+    },
+    [pending, session, publishReport, handleApiFailure],
+  );
+
+  /**
+   * El reclamo: el dato ciego prueba que el objeto es tuyo.
+   *
+   * El API no expone el enlace entre los dos reportes, así que la app lo
+   * guarda en memoria: es lo que permite confirmar la entrega más tarde.
+   */
+  const handleClaim = useCallback(
+    async (report, { providedBlindDetail, message, foundReportId }) => {
+      try {
+        if (foundReportId) {
+          try {
+            await createMatch(report.id, foundReportId);
+          } catch (error) {
+            // El enlace ya existe: no es un fallo, el reclamo sigue.
+            if (error?.kind !== 'conflict') throw error;
+          }
+        }
+
+        await fileClaim(report.id, {
+          providedBlindDetail,
+          ...(message ? { message } : {}),
+        });
+
+        if (foundReportId) {
+          setLinks((previous) => ({ ...previous, [foundReportId]: report.id }));
+          setReports((prev) =>
+            prev.map((entry) =>
+              entry.id === foundReportId ? { ...entry, linkedLostReportId: report.id } : entry,
+            ),
+          );
+        }
+        setModal(null);
+        await loadCampus();
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: handleApiFailure(error, 'No pudimos enviar el reclamo. Inténtalo de nuevo.'),
+        };
+      }
+    },
+    [loadCampus, handleApiFailure],
+  );
+
+  /** La entrega: la clave la dicta el dueño y el API la valida. */
+  const handleSubmitKey = useCallback(
+    async (lostReportId, code) => {
+      try {
+        await confirmDelivery(lostReportId, code);
+      } catch (error) {
+        return {
+          ok: false,
+          error: handleApiFailure(error, 'No pudimos confirmar la entrega. Inténtalo de nuevo.'),
+        };
+      }
+      // El caso se cerró: los pines salen del mapa.
+      setModal(null);
+      await loadCampus();
+      return { ok: true };
+    },
+    [loadCampus, handleApiFailure],
+  );
+
+  /** El punto seguro: el objeto queda en resguardo y el mapa lo dice. */
+  const handleDeposit = useCallback(
+    async (reportId, safePointZoneId) => {
+      try {
+        await depositAtSafePoint(reportId, safePointZoneId);
+      } catch (error) {
+        return {
+          ok: false,
+          error: handleApiFailure(
+            error,
+            'No pudimos dejar el objeto en resguardo. Inténtalo de nuevo.',
+          ),
+        };
+      }
+      await loadCampus();
+      return { ok: true };
+    },
+    [loadCampus, handleApiFailure],
   );
 
   /** Un intento fallido lo quema quien tiene el objeto, nunca la clave. */
@@ -814,32 +1290,81 @@ export default function App() {
     [reports],
   );
 
-  const handleApproveClaim = useCallback((claimId) => {
-    setClaims((prev) =>
-      prev.map((claim) =>
-        claim.id === claimId
-          ? { ...claim, status: 'approved', contact: contactFor(claim.claimantId) }
-          : claim,
-      ),
-    );
-  }, []);
+  const handleApproveClaim = useCallback(
+    async (claimId) => {
+      const claim = claims.find((entry) => entry.id === claimId);
+      if (!claim) return;
+
+      if (!isApiConfigured()) {
+        setClaims((prev) =>
+          prev.map((entry) =>
+            entry.id === claimId
+              ? { ...entry, status: 'approved', contact: contactFor(entry.claimantId) }
+              : entry,
+          ),
+        );
+        return;
+      }
+
+      try {
+        await decideClaim(claimId, { decision: 'approved' });
+        // El contacto se suelta después de aprobar: lo pide el API y sólo
+        // para las dos partes del reclamo.
+        let contact = null;
+        try {
+          contact = await getContactCard(claim.reportId);
+        } catch {
+          contact = null;
+        }
+        setClaims((prev) =>
+          prev.map((entry) =>
+            entry.id === claimId ? { ...entry, status: 'approved', contact } : entry,
+          ),
+        );
+        setActionError('');
+      } catch (error) {
+        setActionError(
+          handleApiFailure(error, 'No pudimos aprobar el reclamo. Inténtalo de nuevo.'),
+        );
+      }
+    },
+    [claims, handleApiFailure],
+  );
 
   const handleRejectClaim = useCallback(
-    (claimId) => {
+    async (claimId) => {
       const claim = claims.find((entry) => entry.id === claimId);
-      setClaims((prev) =>
-        prev.map((entry) => (entry.id === claimId ? { ...entry, status: 'rejected' } : entry)),
-      );
-      // Rechazar es una acusación: el reporte vuelve a estar abierto.
-      setReports((prev) =>
-        prev.map((report) =>
-          claim && report.id === claim.reportId && report.status === 'pending_claim'
-            ? { ...report, status: 'open' }
-            : report,
-        ),
-      );
+
+      if (!isApiConfigured()) {
+        setClaims((prev) =>
+          prev.map((entry) => (entry.id === claimId ? { ...entry, status: 'rejected' } : entry)),
+        );
+        // Rechazar es una acusación: el reporte vuelve a estar abierto.
+        setReports((prev) =>
+          prev.map((report) =>
+            claim && report.id === claim.reportId && report.status === 'pending_claim'
+              ? { ...report, status: 'open' }
+              : report,
+          ),
+        );
+        return;
+      }
+
+      try {
+        await decideClaim(claimId, { decision: 'rejected' });
+        setClaims((prev) =>
+          prev.map((entry) => (entry.id === claimId ? { ...entry, status: 'rejected' } : entry)),
+        );
+        setActionError('');
+        // El reporte vuelve a estar abierto: lo refleja el API.
+        await loadCampus();
+      } catch (error) {
+        setActionError(
+          handleApiFailure(error, 'No pudimos rechazar el reclamo. Inténtalo de nuevo.'),
+        );
+      }
     },
-    [claims],
+    [claims, loadCampus, handleApiFailure],
   );
 
   const handlePinClick = useCallback(
@@ -857,17 +1382,43 @@ export default function App() {
     [reports, session],
   );
 
+  /** Los hallazgos del estudiante: el reclamo se enlaza con uno de ellos. */
+  const myFoundReports = useMemo(
+    () =>
+      reports.filter(
+        (report) =>
+          report.ownerId === session?.id && report.type === 'found' && report.status === 'open',
+      ),
+    [reports, session],
+  );
+
   const pendingClaims = useMemo(
     () => claims.filter((claim) => claim.direction === 'incoming' && claim.status === 'pending'),
     [claims],
   );
+
+  // El reporte que el panel está mostrando, y el reporte perdido con el que
+  // está enlazado (el que lleva la clave de liberación).
+  const infoReport = useMemo(
+    () =>
+      modal?.kind === 'info'
+        ? (reports.find((report) => report.id === modal.reportId) ?? null)
+        : null,
+    [modal, reports],
+  );
+
+  const linkedReport = useMemo(() => {
+    if (!infoReport) return null;
+    const linkedId = links[infoReport.id] ?? infoReport.linkedLostReportId;
+    return linkedId ? (reports.find((report) => report.id === linkedId) ?? null) : null;
+  }, [infoReport, links, reports]);
 
   // Sin conexión manda sobre todo: el aviso vive en toda la app y ninguna
   // pantalla puede fingir que sí tiene datos frescos. Pero si no hay nada
   // guardado, el fallo se dice: un panel de error con su reintento, no un
   // croquis vacío que parece un campus sin reportes.
   const hasData = reports.length > 0 || claims.length > 0;
-  const screenState = !online ? (hasData ? 'offline' : 'error') : campus;
+  const screenState = isOffline ? (hasData ? 'offline' : 'error') : campus;
 
   if (checking) {
     return (
@@ -880,11 +1431,11 @@ export default function App() {
   if (!session) {
     return (
       <div className="flex min-h-dvh flex-col bg-surface-900 font-sans text-white">
-        {!online && <OfflineBanner />}
+        {isOffline && <OfflineBanner />}
         <LoginScreen
           onAuthenticated={handleAuthenticated}
           expired={sessionExpired}
-          offline={!online}
+          offline={isOffline}
         />
       </div>
     );
@@ -892,13 +1443,6 @@ export default function App() {
 
   const lostCount = mapReports.filter((report) => report.type === 'lost').length;
   const foundCount = mapReports.filter((report) => report.type === 'found').length;
-  const infoReport =
-    modal?.kind === 'info'
-      ? (reports.find((report) => report.id === modal.reportId) ?? null)
-      : null;
-  const linkedReport = infoReport?.linkedLostReportId
-    ? reports.find((report) => report.id === infoReport.linkedLostReportId)
-    : null;
 
   return (
     <div className="flex min-h-dvh flex-col bg-surface-900 font-sans text-white">
@@ -964,7 +1508,7 @@ export default function App() {
           </div>
         </nav>
 
-        {!online && <OfflineBanner />}
+        {isOffline && <OfflineBanner />}
       </header>
 
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center gap-4 p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] md:p-6 md:pb-6">
@@ -1027,6 +1571,7 @@ export default function App() {
             onOpenReport={handlePinClick}
             state={screenState}
             onRetry={loadCampus}
+            apiMode={isApiConfigured()}
           />
         )}
 
@@ -1038,6 +1583,7 @@ export default function App() {
             state={screenState}
             onRetry={loadCampus}
             offline={!online}
+            error={actionError}
           />
         )}
       </main>
@@ -1052,6 +1598,7 @@ export default function App() {
           onClose={closeModal}
           onSubmit={handleLostSubmit}
           offline={!online}
+          error={reportError}
         />
       )}
       {modal?.kind === 'found' && (
@@ -1061,6 +1608,15 @@ export default function App() {
           onClose={closeModal}
           onSubmit={handleFoundSubmit}
           offline={!online}
+          error={reportError}
+        />
+      )}
+      {modal?.kind === 'claim' && (
+        <ClaimModal
+          report={modal.report}
+          foundReports={myFoundReports}
+          onClose={closeModal}
+          onSubmit={handleClaim}
         />
       )}
       {modal?.kind === 'release-key' && (
@@ -1075,6 +1631,10 @@ export default function App() {
           onClose={closeModal}
           onResolve={handleResolve}
           onAttempt={handleAttempt}
+          apiMode={isApiConfigured()}
+          onClaim={(report) => setModal({ kind: 'claim', report })}
+          onDeposit={handleDeposit}
+          onSubmitKey={handleSubmitKey}
         />
       )}
     </div>

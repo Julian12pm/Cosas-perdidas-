@@ -111,7 +111,9 @@ export function authRoutes(provider: DatabaseProvider) {
 
     const session = await createSession(database, userId, c.req.header('user-agent'));
     setSessionCookie(c, session.id, session.expiresAt);
-    return c.redirect('/');
+    // La cookie vive en el origen del API, así que el estudiante vuelve a la
+    // app web (la misma que el enlace mailed nombra), no a la raíz del API.
+    return c.redirect(`${publicUrl()}/`);
   });
 
   app.post('/auth/logout', requireSession(provider), async (c) => {
