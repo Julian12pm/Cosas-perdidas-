@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { polygonArea } from './geometry.js';
 import { MAP_IMAGE, UNCERTAIN_CODES, ZONE_BY_ID, ZONES } from './zones.js';
 
 const KINDS = new Set(['building', 'parking', 'meeting_point', 'internet_module', 'track']);
@@ -132,6 +133,78 @@ describe('uncertain codes', () => {
     const carried = new Set(ZONES.map((zone) => zone.code));
     for (const code of UNCERTAIN_CODES) {
       expect(carried.has(code)).toBe(false);
+    }
+  });
+});
+
+describe('footprints', () => {
+  /** The corners of a box: the shape every zone had before the tracing. */
+  const boxCorners = (box) => [
+    [box.x, box.y],
+    [box.x + box.width, box.y],
+    [box.x + box.width, box.y + box.height],
+    [box.x, box.y + box.height],
+  ];
+
+  const buildings = ZONES.filter((zone) => zone.kind === 'building');
+
+  // The shapes are traced from the pixels of the plan, so a construction
+  // that the plan draws with a courtyard is not a rectangle.
+  const ADMINISTRATIVE = ZONE_BY_ID.get('bldg-a');
+
+  it('traces the footprint of a construction instead of drawing its box', () => {
+    expect(ADMINISTRATIVE.polygon).not.toEqual(boxCorners(ADMINISTRATIVE.box));
+    expect(ADMINISTRATIVE.polygon.length).toBeGreaterThan(4);
+    expect(polygonArea(ADMINISTRATIVE.polygon)).toBeLessThan(
+      ADMINISTRATIVE.box.width * ADMINISTRATIVE.box.height,
+    );
+  });
+
+  it('gives every construction at least one fragment, the primary first', () => {
+    for (const zone of buildings) {
+      expect(zone.fragments.length).toBeGreaterThan(0);
+      expect(zone.polygon).toEqual(zone.fragments[0]);
+    }
+  });
+
+  it('keeps every fragment of the constructions the plan cuts in half', () => {
+    // The printed code of these three cuts its own construction in two.
+    for (const id of ['bldg-2h', 'bldg-k', 'bldg-u']) {
+      const zone = ZONE_BY_ID.get(id);
+      expect(zone.fragments.length).toBeGreaterThan(1);
+    }
+  });
+
+  it('keeps every fragment inside the box of its construction', () => {
+    for (const zone of buildings) {
+      for (const ring of zone.fragments) {
+        for (const [x, y] of ring) {
+          expect(x).toBeGreaterThanOrEqual(zone.box.x);
+          expect(y).toBeGreaterThanOrEqual(zone.box.y);
+          expect(x).toBeLessThanOrEqual(zone.box.x + zone.box.width);
+          expect(y).toBeLessThanOrEqual(zone.box.y + zone.box.height);
+        }
+      }
+    }
+  });
+
+  it('keeps every fragment inside the canvas', () => {
+    for (const zone of buildings) {
+      for (const ring of zone.fragments) {
+        for (const [x, y] of ring) {
+          expect(x).toBeGreaterThanOrEqual(0);
+          expect(y).toBeGreaterThanOrEqual(0);
+          expect(x).toBeLessThanOrEqual(MAP_IMAGE.width);
+          expect(y).toBeLessThanOrEqual(MAP_IMAGE.height);
+        }
+      }
+    }
+  });
+
+  it('leaves the zones that are not constructions with the shape of their box', () => {
+    for (const zone of ZONES.filter((entry) => entry.kind !== 'building')) {
+      expect(zone.fragments).toBeUndefined();
+      expect(zone.polygon).toEqual(boxCorners(zone.box));
     }
   });
 });
