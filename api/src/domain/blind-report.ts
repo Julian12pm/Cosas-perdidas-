@@ -4,6 +4,15 @@ export type AgeBucket = 'today' | 'this_week' | 'older';
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** The position of a pin on the croquis, in artwork pixels; null when the report was placed by zone. */
+export interface ReportPosition {
+  mapX: number | null;
+  mapY: number | null;
+}
+
+/** A report that may carry the position of its pin; the stored row decides. */
+export type ReportWithPosition = Report & Partial<ReportPosition>;
+
 /** The shape every authenticated student may read; it carries no identifying datum. */
 export interface PublicReport {
   id: string;
@@ -11,6 +20,8 @@ export interface PublicReport {
   title: string;
   public_description: string;
   zone: string;
+  map_x: number | null;
+  map_y: number | null;
   alias: string;
   age_bucket: AgeBucket;
   status: ReportStatus;
@@ -63,13 +74,15 @@ export function ageBucket(createdAt: number, now: number): AgeBucket {
 }
 
 /** Serializes a report for the map, hiding the blind detail and every contact. */
-export function toPublicReport(report: Report, now: number): PublicReport {
+export function toPublicReport(report: ReportWithPosition, now: number): PublicReport {
   return {
     id: report.id,
     kind: report.kind,
     title: report.title,
     public_description: report.publicDescription,
     zone: report.zoneId,
+    map_x: report.mapX ?? null,
+    map_y: report.mapY ?? null,
     alias: report.reporterAlias,
     age_bucket: ageBucket(report.createdAt, now),
     status: report.status,

@@ -5,6 +5,7 @@ import type { Context } from 'hono';
 import type { z } from 'zod';
 import { auditLog, notifications, reports, users, type JsonRecord } from '#db/schema';
 import type * as schema from '#db/schema';
+import type { ReportPosition } from '#domain/blind-report';
 import type { DomainEvent, Report } from '#domain/claims';
 import { ClaimRuleError, UnauthorizedActorError } from '#domain/claims';
 import { CUSTODY_RETENTION_MS, OPEN_REPORT_TTL_MS, expiryDeadline } from '#domain/retention';
@@ -75,7 +76,7 @@ export async function loadReport(database: AppDatabase, id: string): Promise<Rep
  * column, so the activity instants are read back from the deadline the domain
  * computed when the row was written.
  */
-export function toDomainReport(row: ReportRow): Report {
+export function toDomainReport(row: ReportRow): Report & ReportPosition {
   const created = row.createdAt.getTime();
   const expires = row.expiresAt.getTime();
   const inCustody = row.status === 'in_custody';
@@ -90,6 +91,8 @@ export function toDomainReport(row: ReportRow): Report {
   return {
     id: row.id,
     kind: row.kind,
+    mapX: row.mapX === null ? null : Number(row.mapX),
+    mapY: row.mapY === null ? null : Number(row.mapY),
     ownerId: row.ownerId,
     ownerDisplayName: row.ownerDisplayName,
     title: row.title,

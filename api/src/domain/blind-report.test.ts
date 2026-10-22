@@ -5,13 +5,14 @@ import {
   toOwnerReport,
   toPublicReport,
   type ContactPerson,
+  type ReportPosition,
 } from './blind-report';
 import type { Report } from './claims';
 
 const NOW = 1_700_000_000_000;
 const HOUR = 3_600_000;
 
-function report(overrides: Partial<Report> = {}): Report {
+function report(overrides: Partial<Report & ReportPosition> = {}): Report & ReportPosition {
   return {
     id: 'report-1',
     kind: 'found',
@@ -33,6 +34,8 @@ function report(overrides: Partial<Report> = {}): Report {
     resolvedAt: null,
     archivedAt: null,
     lastActivityAt: NOW - HOUR,
+    mapX: null,
+    mapY: null,
     ...overrides,
   };
 }
@@ -49,6 +52,20 @@ describe('toPublicReport', () => {
       status: 'open',
       created_at: NOW - HOUR,
     });
+  });
+
+  it('publishes the position of the pin', () => {
+    const publicReport = toPublicReport(report({ mapX: 120, mapY: 240 }), NOW);
+    expect(publicReport.map_x).toBe(120);
+    expect(publicReport.map_y).toBe(240);
+  });
+
+  it('publishes a null position when the report was placed by zone', () => {
+    const publicReport = toPublicReport(report({ mapX: null, mapY: null }), NOW);
+    expect(publicReport).toHaveProperty('map_x');
+    expect(publicReport).toHaveProperty('map_y');
+    expect(publicReport.map_x).toBeNull();
+    expect(publicReport.map_y).toBeNull();
   });
 
   it('never leaks the blind detail', () => {
