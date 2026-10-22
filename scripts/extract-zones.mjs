@@ -9,6 +9,9 @@
  *
  * Outputs:
  *   src/map/zones.js   - the catalogue (deterministic order)
+ *   public/mapa-itm-dark.png - the interactive artwork: the same masks
+ *                              remapped to the app's palette and cropped to
+ *                              the campus (the legend column is cut away)
  *   public/zones-debug.png - the plan with every detected box drawn and labelled
  *
  * Measured on the current raster: 53 orange footprints, of which 52 carry a
@@ -26,11 +29,20 @@ import { PNG } from 'pngjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MAP_PATH = resolve(ROOT, 'public/mapa-itm.png');
+const DARK_MAP_PATH = resolve(ROOT, 'public/mapa-itm-dark.png');
 const ZONES_OUT = resolve(ROOT, 'src/map/zones.js');
 const DEBUG_OUT = resolve(ROOT, 'public/zones-debug.png');
 
 const MAP_WIDTH = 846;
 const MAP_HEIGHT = 647;
+
+/*
+ * The interactive artwork is the dark crop of the plan: the legend column,
+ * the title card and the crest live past x = 700. The crop starts at x = 0,
+ * so the artwork's origin does NOT move — every coordinate of the catalogue
+ * stays valid and only the canvas width changes.
+ */
+const CROP_WIDTH = 700;
 
 /* ------------------------------------------------------------------ *
  * Legend of the plan, transcribed from the right-hand panel of the
@@ -190,8 +202,11 @@ const EXCLUDED_REGIONS = [
 /**
  * Parking lots. The lots are drawn with a stippled/hatched paving texture
  * that is not separable from the street network by colour alone (the street
- * mesh and the lots share the same grey ramp), so each lot is located by the
- * region it occupies and the box is measured from the paving pixels inside.
+ * mesh and the western lots share the same grey ramp), so each lot is
+ * located by the region it occupies and the box is measured from the paving
+ * pixels inside. The eastern lot (3) is drawn with a brick hatch instead,
+ * which does not leak into the street mesh: there the box is the biggest
+ * patch of brick inside the region.
  */
 const PARKING_REGIONS = [
   { code: '1', name: 'Estacionamiento 1', x: 58, y: 74, width: 30, height: 110 },
@@ -244,6 +259,53 @@ const isInternetModule = (r, g, b) => r <= 130 && g >= 120 && g <= 205 && g - r 
 const isPaving = (r, g, b) =>
   (Math.abs(r - g) <= 14 && Math.abs(g - b) <= 16 && r >= 150 && r <= 248) ||
   (r >= 175 && r <= 235 && r - g >= 40 && r - g <= 95 && g - b >= 5 && g - b <= 55);
+
+/* --- the layers of the dark artwork ------------------------------- *
+ * The artwork is remapped per CLASSIFIED LAYER, never per pixel: these
+ * predicates are the ones that decide which layer a pixel belongs to.
+ * ------------------------------------------------------------------ */
+
+// The grey half of the paving: the street mesh and the stippled lots.
+const isPavingGrey = (r, g, b) =>
+  Math.abs(r - g) <= 14 && Math.abs(g - b) <= 16 && r >= 150 && r <= 248;
+
+// The brick half of the paving: the eastern lots and the patios.
+const isPavingBrick = (r, g, b) =>
+  r >= 175 && r <= 235 && r - g >= 40 && r - g <= 95 && g - b >= 5 && g - b <= 55;
+
+// Any grey linework of the plan, from the darkest street edge to the
+// softest hairline: the boundaries, the area outlines and the hatch.
+const isGreyLine = (r, g, b) =>
+  Math.abs(r - g) <= 14 && Math.abs(g - b) <= 16 && r >= 118 && r <= 248;
+
+// The black of the plan: the printed text, the labels and the drop shadow
+// the plan draws under every construction.
+const isInk = (r, g, b) => Math.max(r, g, b) < 125 && Math.max(r, g, b) - Math.min(r, g, b) < 45;
+
+// The lawns: the light green fields of the campus.
+const isLawnGreen = (r, g, b) =>
+  r >= 175 &&
+  r <= 235 &&
+  g >= 205 &&
+  g <= 245 &&
+  b >= 170 &&
+  b <= 215 &&
+  g - r >= 15 &&
+  g - b >= 20;
+
+// The sports pitches: the saturated grass of the athletics field and of the
+// football pitch, plus the green strips that line the avenues.
+const isFieldGreen = (r, g, b) =>
+  r >= 100 && r <= 180 && g >= 160 && g <= 225 && b <= 125 && g - r >= 35 && g - b >= 65;
+
+// The warm hatch of the plan: the brick of the eastern lots and patios, the
+// salmon frames of the internet modules and the magenta of a few symbols.
+const isWarmHatch = (r, g, b) =>
+  r >= 140 && r <= 240 && r - g >= 38 && r - g <= 110 && g - b >= -90 && g - b <= 60;
+
+// The cyan of the plan: the turquoise courts and the blue cores of the
+// internet module symbols.
+const isCyanPaint = (r, g, b) => b >= 180 && b - r >= 40 && g >= 120 && g - b >= -40;
 
 const inExcluded = (x, y) =>
   EXCLUDED_REGIONS.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
@@ -458,6 +520,10 @@ const buildingBoxes = [...groups.values()].map((members) => {
     ...box,
     area: members.reduce((sum, m) => sum + m.area, 0),
     code: coded ? codeOfBlob.get(coded.index) : null,
+    // The members carry their pixels: the dark artwork paints the two safe
+    // points with the brand amber and needs to know exactly which pixels
+    // belong to them.
+    members,
   };
 });
 
@@ -554,13 +620,65 @@ const trackBoxes = components(dilate(trackMask, 2))
 
 // --- parking: paving texture inside the five lot regions -------------
 const pavingMask = new Uint8Array(W * H);
+const greyPavingMask = new Uint8Array(W * H);
+const brickPavingMask = new Uint8Array(W * H);
 for (let y = 0; y < H; y++) {
   for (let x = 0; x < W; x++) {
     const [r, g, b] = rgb(x, y);
-    if (isPaving(r, g, b)) pavingMask[y * W + x] = 1;
+    if (!isPaving(r, g, b)) continue;
+    pavingMask[y * W + x] = 1;
+    if (isPavingBrick(r, g, b)) brickPavingMask[y * W + x] = 1;
+    else if (isPavingGrey(r, g, b)) greyPavingMask[y * W + x] = 1;
   }
 }
+// The brick hatch is a set of discrete patches (the eastern lots and the
+// patios of the campus), so a lot drawn with it is one patch, not the whole
+// region: the patch is found, the region only says where to look.
+const brickPatches = components(brickPavingMask).filter((patch) => patch.pixels.length >= 20);
+
+const boxOfPixels = (pixels) => {
+  if (!pixels.length) return null;
+  const xs = pixels.map((p) => p[0]);
+  const ys = pixels.map((p) => p[1]);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+};
+
 const parkingBoxes = PARKING_REGIONS.map((region) => {
+  const inside = (x, y) =>
+    x >= region.x && x < region.x + region.width && y >= region.y && y < region.y + region.height;
+
+  let grey = 0;
+  let brick = 0;
+  for (let y = region.y; y < region.y + region.height; y++) {
+    for (let x = region.x; x < region.x + region.width; x++) {
+      if (greyPavingMask[y * W + x]) grey++;
+      else if (brickPavingMask[y * W + x]) brick++;
+    }
+  }
+
+  // The street mesh shares the grey ramp with the stippled lots, so the
+  // grey pixels of a region reach beyond the lot. The brick hatch does not
+  // leak: when the lot is drawn with brick, the lot is the biggest patch of
+  // brick inside the region and nothing else is measured.
+  if (brick > grey) {
+    let best = [];
+    for (const patch of brickPatches) {
+      const within = patch.pixels.filter(([x, y]) => inside(x, y));
+      if (within.length > best.length) best = within;
+    }
+    const box = boxOfPixels(best);
+    return {
+      code: region.code,
+      name: region.name,
+      area: best.length,
+      box: box ?? { x: region.x, y: region.y, width: region.width, height: region.height },
+    };
+  }
+
   let minX = Infinity;
   let maxX = -1;
   let minY = Infinity;
@@ -593,6 +711,241 @@ const bound = new Map();
 for (const box of buildingBoxes) {
   if (box.code && !bound.has(box.code)) bound.set(box.code, box);
 }
+
+/* ------------------------------------------------------------------ *
+ * The dark artwork
+ *
+ * The interactive map must stop being a bright slab of scanned paper in a
+ * dark product, so the same masks that produce the catalogue produce a
+ * SECOND raster: the plan's layers remapped to the app's palette and the
+ * legend column cut away. The remap is per classified layer, never a
+ * per-pixel filter: every pixel lands in exactly one layer and the layer
+ * decides the colour.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The palette of the dark artwork. The hexes the app already owns are the
+ * app's own tokens; the ones it does not own are picked to sit at the
+ * lightness of their neighbours, so the plan reads as one surface.
+ */
+const DARK_PALETTE = {
+  // The paper of the scanned plan is the page ground of the product.
+  paper: '#0f1219', // --color-surface-900
+  // The streets and the lots: one step above the ground, so the roads read.
+  paving: '#161b27', // --color-surface-800
+  // The thin outlines of the plan (the campus boundary, the area edges).
+  hairline: '#2c3549',
+  // The printed text and the street labels.
+  ink: '#a1adc6', // --color-surface-300
+  // The lawns: a dark, desaturated green that still reads as grass.
+  lawn: '#1f3d30',
+  // The sports pitches and the green strips of the avenues.
+  field: '#2f5738',
+  // The constructions: a muted amber, the identity of the plan without glare.
+  building: '#a8721a',
+  // The two hand-over points, a step brighter than the rest.
+  safe: '#f59518', // --color-brand-500
+  // The drop shadow the plan draws under every construction.
+  shadow: '#3d2a0d',
+  // The athletics track: a muted brown.
+  track: '#6b5335',
+  // The brick hatch of the eastern lots and of the patios.
+  brick: '#6e4a3a',
+  // The salmon frames and the magenta symbols.
+  pink: '#6b4a55',
+  // The turquoise courts and the blue cores of the module symbols.
+  cyan: '#2f6f8c',
+  // The cores of the internet module symbols.
+  module: '#2f7d64',
+  // The meeting points of the plan.
+  meeting: '#2f7d4f',
+};
+
+const LAYER_NAMES = Object.keys(DARK_PALETTE);
+const LAYER_INDEX = new Map(LAYER_NAMES.map((name, index) => [name, index]));
+
+/** A summed-area table of a mask, so the count inside a window is O(1). */
+function summedArea(mask) {
+  const table = new Int32Array((W + 1) * (H + 1));
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      table[(y + 1) * (W + 1) + (x + 1)] =
+        table[y * (W + 1) + (x + 1)] +
+        table[(y + 1) * (W + 1) + x] -
+        table[y * (W + 1) + x] +
+        mask[y * W + x];
+    }
+  }
+  return table;
+}
+
+/** The fraction of a mask's pixels inside the window around (x, y). */
+function density(table, x, y, radius) {
+  const x0 = Math.max(0, x - radius);
+  const y0 = Math.max(0, y - radius);
+  const x1 = Math.min(W - 1, x + radius);
+  const y1 = Math.min(H - 1, y + radius);
+  const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+  const sum =
+    table[(y1 + 1) * (W + 1) + (x1 + 1)] -
+    table[y0 * (W + 1) + (x1 + 1)] -
+    table[(y1 + 1) * (W + 1) + x0] +
+    table[y0 * (W + 1) + x0];
+  return sum / area;
+}
+
+// The masks the artwork needs: the orange fill (for the drop shadow) and
+// the grey linework (to tell a hairline from a paved area).
+const greyLineMask = new Uint8Array(W * H);
+for (let y = 0; y < H; y++) {
+  for (let x = 0; x < W; x++) {
+    const [r, g, b] = rgb(x, y);
+    if (isGreyLine(r, g, b)) greyLineMask[y * W + x] = 1;
+  }
+}
+const orangeTable = summedArea(buildingMask);
+const greyTable = summedArea(greyLineMask);
+
+// The two safe points: A (the Edificio Administrativo) and AF (the Centro de
+// Información, the campus library). They read a step brighter than the rest.
+const safeMask = new Uint8Array(W * H);
+for (const code of ['A', 'AF']) {
+  const group = bound.get(code);
+  if (!group) continue;
+  for (const member of group.members) {
+    for (const [px, py] of member.pixels) safeMask[py * W + px] = 1;
+  }
+}
+
+// The black printed inside a construction is a HOLE of the orange fill: it
+// cannot be reached from the border without crossing the orange. The drop
+// shadow the plan draws under a construction can: it touches the paper. The
+// flood fill tells the printed code labels from the shadows. The obstacle is
+// the orange dilated by one pixel, so the anti-aliased rim of the orange
+// does not open a leak to the label.
+const outsideMask = new Uint8Array(W * H);
+const flood = [];
+const orangeWall = dilate(buildingMask, 1);
+for (let x = 0; x < W; x++) {
+  flood.push([x, 0], [x, H - 1]);
+}
+for (let y = 0; y < H; y++) {
+  flood.push([0, y], [W - 1, y]);
+}
+while (flood.length) {
+  const [x, y] = flood.pop();
+  if (x < 0 || y < 0 || x >= W || y >= H) continue;
+  const i = y * W + x;
+  if (outsideMask[i] || orangeWall[i]) continue;
+  outsideMask[i] = 1;
+  flood.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+}
+const insideConstruction = new Uint8Array(W * H);
+for (let i = 0; i < W * H; i++) {
+  if (!buildingMask[i] && !outsideMask[i]) insideConstruction[i] = 1;
+}
+
+// The drop shadow the plan draws under every construction is a solid black
+// band that TOUCHES the construction. The printed text of the plan is
+// strokes: thin in at least one direction. A black pixel belongs to a
+// shadow when the ink runs at least four pixels long in BOTH directions
+// (a band) next to a construction; the code label printed inside a
+// construction is a hole and is never a shadow.
+const inkMask = new Uint8Array(W * H);
+for (let y = 0; y < H; y++) {
+  for (let x = 0; x < W; x++) {
+    const [r, g, b] = rgb(x, y);
+    if (isInk(r, g, b)) inkMask[y * W + x] = 1;
+  }
+}
+/** The length of the ink run through (x, y), capped at the limit. */
+const inkRun = (x, y, dx, dy, limit) => {
+  let n = 1;
+  let cx = x + dx;
+  let cy = y + dy;
+  while (n < limit && cx >= 0 && cy >= 0 && cx < W && cy < H && inkMask[cy * W + cx]) {
+    n++;
+    cx += dx;
+    cy += dy;
+  }
+  return n;
+};
+const shadowMask = new Uint8Array(W * H);
+for (let y = 0; y < H; y++) {
+  for (let x = 0; x < W; x++) {
+    const i = y * W + x;
+    if (!inkMask[i] || insideConstruction[i]) continue;
+    const horizontal = inkRun(x, y, -1, 0, 4) + inkRun(x, y, 1, 0, 4) - 1;
+    if (horizontal < 4) continue;
+    const vertical = inkRun(x, y, 0, -1, 4) + inkRun(x, y, 0, 1, 4) - 1;
+    if (vertical < 4) continue;
+    const nearConstruction = density(orangeTable, x, y, 8) > 0;
+    if (!nearConstruction) continue;
+    shadowMask[i] = 1;
+  }
+}
+
+const darkLayer = new Uint8Array(W * H);
+const layerCounts = new Map();
+for (let y = 0; y < H; y++) {
+  for (let x = 0; x < W; x++) {
+    const i = y * W + x;
+    const [r, g, b] = rgb(x, y);
+    let layer;
+
+    if (isInk(r, g, b)) {
+      // The black of the plan is either the printed ink (the code label
+      // printed inside a construction, the text of the plan) or the drop
+      // shadow the plan draws under every construction.
+      layer = shadowMask[i] ? 'shadow' : 'ink';
+    } else if (isBuildingFill(r, g, b)) {
+      layer = safeMask[i] ? 'safe' : 'building';
+    } else if (isTrackFill(r, g, b)) {
+      layer = 'track';
+    } else if (isCyanPaint(r, g, b)) {
+      layer = 'cyan';
+    } else if (isFieldGreen(r, g, b)) {
+      layer = 'field';
+    } else if (isMeetingPoint(r, g, b)) {
+      layer = 'meeting';
+    } else if (isInternetModule(r, g, b)) {
+      layer = 'module';
+    } else if (isWarmHatch(r, g, b)) {
+      layer = b >= g ? 'pink' : 'brick';
+    } else if (isLawnGreen(r, g, b)) {
+      layer = 'lawn';
+    } else if (isGreyLine(r, g, b)) {
+      // A grey pixel surrounded by grey is the texture of a street or of a
+      // lot; a grey pixel alone on the paper is one of the thin outlines.
+      layer = density(greyTable, x, y, 4) < 0.45 ? 'hairline' : 'paving';
+    } else {
+      layer = 'paper';
+    }
+
+    darkLayer[i] = LAYER_INDEX.get(layer);
+    layerCounts.set(layer, (layerCounts.get(layer) ?? 0) + 1);
+  }
+}
+
+const DARK_RGB = Object.fromEntries(
+  Object.entries(DARK_PALETTE).map(([name, hex]) => [
+    name,
+    [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)],
+  ]),
+);
+
+const dark = new PNG({ width: CROP_WIDTH, height: MAP_HEIGHT });
+for (let y = 0; y < MAP_HEIGHT; y++) {
+  for (let x = 0; x < CROP_WIDTH; x++) {
+    const [r, g, b] = DARK_RGB[LAYER_NAMES[darkLayer[y * W + x]]];
+    const i = (y * CROP_WIDTH + x) * 4;
+    dark.data[i] = r;
+    dark.data[i + 1] = g;
+    dark.data[i + 2] = b;
+    dark.data[i + 3] = 255;
+  }
+}
+writeFileSync(DARK_MAP_PATH, PNG.sync.write(dark));
 
 const units = {
   'metal-mecanica': 'metal-mecanica',
@@ -756,10 +1109,13 @@ const zoneLiteral = (zone) => {
 
 const zonesJs = `// Generated by scripts/extract-zones.mjs from public/mapa-itm.png — do not edit by hand.
 //
-// The raster is the official "PLANO GENERAL CAMPUS ITM N°1" (846 x 647 px).
-// Every zone is a detected, addressable footprint in that pixel space.
+// The interactive artwork is the DARK CROP of the official "PLANO GENERAL
+// CAMPUS ITM N°1": public/mapa-itm-dark.png (${CROP_WIDTH} x ${MAP_HEIGHT} px), the plan
+// remapped to the app's palette with its legend column, its title card and
+// its crest cut away. The crop starts at x = 0, so the origin does not move
+// and every zone stays in the coordinate space of the original plan.
 
-export const MAP_IMAGE = { src: '/mapa-itm.png', width: ${MAP_WIDTH}, height: ${MAP_HEIGHT} };
+export const MAP_IMAGE = { src: '/mapa-itm-dark.png', width: ${CROP_WIDTH}, height: ${MAP_HEIGHT} };
 
 export const ZONES = [
 ${zones.map(zoneLiteral).join('\n')}
@@ -897,7 +1253,12 @@ const report = {
 };
 console.log('zone catalogue written to src/map/zones.js');
 console.log('debug overlay written to public/zones-debug.png');
+console.log('dark artwork written to public/mapa-itm-dark.png');
 console.log('per-layer counts:', JSON.stringify(report));
+console.log(
+  'dark artwork per-layer counts:',
+  JSON.stringify(Object.fromEntries(LAYER_NAMES.map((name) => [name, layerCounts.get(name) ?? 0]))),
+);
 console.log(
   `codes assigned ${bound.size}/${PRINTED_CODES.length}, uncertain: ${
     uncertainCodes.length ? uncertainCodes.join(', ') : 'none'

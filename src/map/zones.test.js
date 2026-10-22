@@ -5,8 +5,8 @@ const KINDS = new Set(['building', 'parking', 'meeting_point', 'internet_module'
 const UNITS = new Set(['metal-mecanica', 'central', 'posgrado', 'campus']);
 
 describe('zone catalogue', () => {
-  it('describes the official raster', () => {
-    expect(MAP_IMAGE).toEqual({ src: '/mapa-itm.png', width: 846, height: 647 });
+  it('describes the dark cropped artwork', () => {
+    expect(MAP_IMAGE).toEqual({ src: '/mapa-itm-dark.png', width: 700, height: 647 });
   });
 
   it('gives every zone a unique id', () => {
@@ -28,6 +28,16 @@ describe('zone catalogue', () => {
       expect(y).toBeGreaterThanOrEqual(0);
       expect(x + width).toBeLessThanOrEqual(MAP_IMAGE.width);
       expect(y + height).toBeLessThanOrEqual(MAP_IMAGE.height);
+    }
+  });
+
+  // The crop of the artwork cuts the legend column (x 700..846) away. The
+  // crop starts at x = 0, so the origin does not move, but a zone that
+  // crossed the new edge would be cut in half: the crop would have to be
+  // wider and the migration would become a real origin shift.
+  it('no zone crosses the right edge of the crop', () => {
+    for (const zone of ZONES) {
+      expect(zone.box.x + zone.box.width).toBeLessThanOrEqual(700);
     }
   });
 
@@ -66,6 +76,26 @@ describe('layer counts', () => {
 
   it('finds the athletics track', () => {
     expect(count('track')).toBe(1);
+  });
+});
+
+describe('measured parking lots', () => {
+  // The third lot is drawn with a brick hatch, not with the grey stipple of
+  // the western lots, and the street mesh leaks into its region: the box has
+  // to be the patch of brick the plan draws, not the region it was looked
+  // for in.
+  it('measures the third lot instead of repeating its region', () => {
+    const lot = ZONE_BY_ID.get('parking-3');
+    expect(lot.box).toEqual({ x: 629, y: 561, width: 52, height: 33 });
+    expect(lot.box).not.toEqual({ x: 620, y: 552, width: 70, height: 48 });
+  });
+
+  it('keeps the measured lot inside the region it was looked for in', () => {
+    const lot = ZONE_BY_ID.get('parking-3');
+    expect(lot.box.x).toBeGreaterThanOrEqual(620);
+    expect(lot.box.y).toBeGreaterThanOrEqual(552);
+    expect(lot.box.x + lot.box.width).toBeLessThanOrEqual(690);
+    expect(lot.box.y + lot.box.height).toBeLessThanOrEqual(600);
   });
 });
 
