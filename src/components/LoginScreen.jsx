@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import { MapPointIcon } from '@solar-icons/react/bold/map-point';
 import { INSTITUTIONAL_DOMAINS, MOCK_SESSION, isInstitutionalEmail } from '../data.js';
+import { isApiConfigured, requestMagicLink } from '../api.js';
 
 /*
  * El acceso es institucional: no hay registro anónimo ni contraseña, sólo un
@@ -10,11 +11,12 @@ import { INSTITUTIONAL_DOMAINS, MOCK_SESSION, isInstitutionalEmail } from '../da
  * usable antes de que el servidor exista.
  */
 
-const API_URL = import.meta.env.VITE_API_URL ?? '';
-
 /** Lo que dice la pantalla cuando el servidor ya no reconoce la sesión. */
 const EXPIRED_MESSAGE =
   'Tu sesión venció. Vuelve a entrar con tu correo institucional para seguir.';
+
+/** El dominio institucional, en el texto que el estudiante lee. */
+const DOMAIN_HINT = INSTITUTIONAL_DOMAINS.map((domain) => `@${domain}`).join(' o ');
 
 export default function LoginScreen({ onAuthenticated, expired = false, offline = false }) {
   const [email, setEmail] = useState('');
@@ -26,7 +28,7 @@ export default function LoginScreen({ onAuthenticated, expired = false, offline 
   const hintId = useId();
   const statusId = useId();
 
-  const demoMode = API_URL.length === 0;
+  const demoMode = !isApiConfigured();
   const failed = status === 'error' || status === 'expired';
 
   const handleSubmit = async (event) => {
@@ -51,24 +53,22 @@ export default function LoginScreen({ onAuthenticated, expired = false, offline 
     }
 
     try {
-      const response = await fetch(`${API_URL}/auth/magic-link`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email: address }),
-      });
-
-      if (!response.ok) {
-        setStatus('error');
-        setMessage('No pudimos enviar el enlace. Inténtalo de nuevo en unos minutos.');
-        return;
-      }
-
+      await requestMagicLink(address);
       setStatus('sent');
       setMessage(`Enviamos el enlace a ${address}. Vence en 15 minutos y sirve una sola vez.`);
-    } catch {
+    } catch (error) {
       setStatus('error');
-      setMessage('No pudimos conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.');
+      // El cliente sabe qué pasó: sin red no es un fallo del servidor, y un
+      // buzón que no es institucional se dice como lo que es.
+      if (error?.kind === 'offline') {
+        setMessage('No pudimos conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.');
+      } else if (error?.payload?.error === 'not_institutional') {
+        setMessage(
+          `El acceso es sólo para el correo institucional del TECNM: termina en ${DOMAIN_HINT}.`,
+        );
+      } else {
+        setMessage('No pudimos enviar el enlace. Inténtalo de nuevo en unos minutos.');
+      }
     }
   };
 
@@ -116,8 +116,7 @@ export default function LoginScreen({ onAuthenticated, expired = false, offline 
               className="min-h-[44px] w-full rounded-xl border border-input-border bg-surface-700/50 px-4 py-3 text-base text-white placeholder-surface-500 focus:outline-none focus:ring-2 focus:ring-focus"
             />
             <p id={hintId} className="mt-1.5 text-xs leading-relaxed text-text-muted">
-              La cuenta es institucional: sólo aceptamos buzones de{' '}
-              {INSTITUTIONAL_DOMAINS.map((domain) => `@${domain}`).join(' o ')}. Te enviamos un
+              La cuenta es institucional: sólo aceptamos buzones de {DOMAIN_HINT}. Te enviamos un
               enlace de un solo uso, sin contraseña y sin registro anónimo.
             </p>
           </div>

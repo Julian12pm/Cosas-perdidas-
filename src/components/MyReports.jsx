@@ -40,7 +40,14 @@ function CopyKey({ value }) {
   );
 }
 
-export default function MyReports({ reports, claims, onOpenReport, state = 'ready', onRetry }) {
+export default function MyReports({
+  reports,
+  claims,
+  onOpenReport,
+  state = 'ready',
+  onRetry,
+  apiMode = false,
+}) {
   return (
     <section data-testid="my-reports" className="w-full max-w-3xl">
       {state === 'loading' && (
@@ -142,6 +149,13 @@ export default function MyReports({ reports, claims, onOpenReport, state = 'read
                         <CopyKey value={report.releaseKey} />
                       </div>
                     </div>
+                  )}
+
+                  {isLost && !report.releaseKey && apiMode && (
+                    <p className="mt-3 rounded-xl border border-surface-600/40 bg-surface-700/30 p-3 text-xs leading-relaxed text-text-muted">
+                      La clave de liberación se mostró una sola vez, al publicar el reporte: el
+                      servidor no la vuelve a dar. Si la perdiste, publica un reporte nuevo.
+                    </p>
                   )}
 
                   {!isLost && report.blindDetail && (
