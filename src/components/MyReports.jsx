@@ -1,4 +1,8 @@
 import { useState } from 'react';
+import { CheckCircleIcon } from '@solar-icons/react/bold/check-circle';
+import { ClockCircleIcon } from '@solar-icons/react/bold/clock-circle';
+import { MapPointIcon } from '@solar-icons/react/bold/map-point';
+import { QuestionCircleIcon } from '@solar-icons/react/bold/question-circle';
 import { EmptyState, ErrorState, LoadingState } from './StateMessage.jsx';
 import { REPORT_STATUS_LABELS, UNKNOWN_STATUS_LABEL, copyToClipboard, formatAge } from '../data.js';
 
@@ -82,11 +86,16 @@ export default function MyReports({ reports, claims, onOpenReport, state = 'read
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <span
-                        className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
                           isLost ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'
                         }`}
                       >
-                        {isLost ? '🔴 Perdido' : '🟢 Encontrado'}
+                        {isLost ? (
+                          <QuestionCircleIcon size={16} className="shrink-0" aria-hidden="true" />
+                        ) : (
+                          <CheckCircleIcon size={16} className="shrink-0" aria-hidden="true" />
+                        )}
+                        {isLost ? 'Perdido' : 'Encontrado'}
                       </span>
                       <h3 className="mt-1.5 font-semibold text-white">{report.item}</h3>
                     </div>
@@ -102,11 +111,17 @@ export default function MyReports({ reports, claims, onOpenReport, state = 'read
 
                   <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-text-muted">
                     <div className="flex gap-1.5">
-                      <dt>📍 Zona:</dt>
+                      <dt className="inline-flex items-center gap-1">
+                        <MapPointIcon size={16} className="shrink-0" aria-hidden="true" />
+                        Zona:
+                      </dt>
                       <dd className="text-surface-200">{report.zoneLabel ?? 'Terreno libre'}</dd>
                     </div>
                     <div className="flex gap-1.5">
-                      <dt>🕒 Antiguo:</dt>
+                      <dt className="inline-flex items-center gap-1">
+                        <ClockCircleIcon size={16} className="shrink-0" aria-hidden="true" />
+                        Antiguo:
+                      </dt>
                       <dd className="text-surface-200">{formatAge(report.timestamp)}</dd>
                     </div>
                   </dl>

@@ -1,4 +1,16 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { CheckCircleIcon } from '@solar-icons/react/bold/check-circle';
+import { ClockCircleIcon } from '@solar-icons/react/bold/clock-circle';
+import { FolderIcon } from '@solar-icons/react/bold/folder';
+import { InboxIcon } from '@solar-icons/react/bold/inbox';
+import { LockKeyholeIcon } from '@solar-icons/react/bold/lock-keyhole';
+import { LockUnlockedIcon } from '@solar-icons/react/bold/lock-unlocked';
+import { LogoutIcon } from '@solar-icons/react/bold/logout';
+import { MapIcon } from '@solar-icons/react/bold/map';
+import { MapPointIcon } from '@solar-icons/react/bold/map-point';
+import { QuestionCircleIcon } from '@solar-icons/react/bold/question-circle';
+import { ShieldCheckIcon } from '@solar-icons/react/bold/shield-check';
+import { UserIcon } from '@solar-icons/react/bold/user';
 import CampusMap from './components/CampusMap.jsx';
 import ClaimInbox from './components/ClaimInbox.jsx';
 import ContactCard from './components/ContactCard.jsx';
@@ -38,26 +50,6 @@ const ON_MAP_STATUSES = new Set(['open', 'pending_claim', 'in_custody']);
 /** Dónde se guarda la sesión de demostración entre recargas. */
 const SESSION_KEY = 'objetos-perdidos:session';
 
-/* ─────────────────────────── Iconos inline ─────────────────────────── */
-const IconLock = () => (
-  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
-    <rect x="3" y="11" width="18" height="11" rx="2" />
-    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-  </svg>
-);
-
-const IconPin = () => (
-  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor">
-    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 0 1 0-5 2.5 2.5 0 0 1 0 5z" />
-  </svg>
-);
-
-const IconShield = () => (
-  <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2">
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-  </svg>
-);
-
 /* ────────────────────────── Componente Pin ────────────────────────── */
 function MapPin({ report, onClick }) {
   const isLost = report.type === 'lost';
@@ -76,7 +68,7 @@ function MapPin({ report, onClick }) {
       // El pin se mide contra el plano que lo sostiene: --pin-scale lo reduce
       // cuando el croquis es pequeño (un teléfono) para no tapar el edificio.
       style={{ left: `${report.x}%`, top: `${report.y}%`, scale: 'var(--pin-scale, 1)' }}
-      title={`${isLost ? '🔴 Perdido' : '🟢 Encontrado'}: ${report.item}${report.zoneLabel ? ` · ${report.zoneLabel}` : ''}`}
+      title={`${isLost ? 'Perdido' : 'Encontrado'}: ${report.item}${report.zoneLabel ? ` · ${report.zoneLabel}` : ''}`}
       aria-label={`Pin ${isLost ? 'perdido' : 'encontrado'}: ${report.item}${report.zoneLabel ? ` en ${report.zoneLabel}` : ''}`}
     >
       <div className="absolute bottom-0 left-1/2 h-1.5 w-3 -translate-x-1/2 translate-y-1 rounded-full bg-black/40 blur-sm" />
@@ -95,11 +87,23 @@ function MapPin({ report, onClick }) {
         />
       </div>
       <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-surface-900/95 px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-xl backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100">
-        <span className={isLost ? 'text-red-400' : 'text-green-400'}>
-          {isLost ? '📍 Perdido' : '📍 Encontrado'}
+        <span
+          className={`inline-flex items-center gap-1 ${isLost ? 'text-red-400' : 'text-green-400'}`}
+        >
+          {isLost ? (
+            <QuestionCircleIcon size={16} aria-hidden="true" />
+          ) : (
+            <CheckCircleIcon size={16} aria-hidden="true" />
+          )}
+          {isLost ? 'Perdido' : 'Encontrado'}
         </span>
         <span className="ml-1 text-surface-300">· {shortItem}</span>
-        {report.zoneLabel && <span className="ml-1 text-brand-300">· 📍 {report.zoneLabel}</span>}
+        {report.zoneLabel && (
+          <span className="ml-1 inline-flex items-center gap-1 text-brand-300">
+            ·<MapPointIcon size={16} aria-hidden="true" />
+            {report.zoneLabel}
+          </span>
+        )}
         <div className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-surface-900/95" />
       </div>
     </button>
@@ -142,8 +146,9 @@ function PinTypeModal({ pending, onClose, onSelect }) {
         </button>
       }
     >
-      <p className="mb-3 rounded-lg bg-surface-700/40 p-2.5 text-sm text-surface-300">
-        📍 Se marcará en:{' '}
+      <p className="mb-3 flex items-center gap-1.5 rounded-lg bg-surface-700/40 p-2.5 text-sm text-surface-300">
+        <MapPointIcon size={16} className="shrink-0" aria-hidden="true" />
+        Se marcará en:{' '}
         <span className="font-semibold text-white">{pending?.zone?.label ?? 'terreno libre'}</span>
       </p>
 
@@ -158,7 +163,10 @@ function PinTypeModal({ pending, onClose, onSelect }) {
             <span className="text-lg text-white">?</span>
           </div>
           <div className="text-left">
-            <h3 className="text-base font-semibold text-white">🔴 Perdí algo aquí</h3>
+            <h3 className="flex items-center gap-1.5 text-base font-semibold text-white">
+              <QuestionCircleIcon size={16} className="shrink-0 text-danger" aria-hidden="true" />
+              Perdí algo aquí
+            </h3>
             <p className="text-sm text-red-300/70">Marca el lugar donde perdiste tu objeto</p>
           </div>
         </button>
@@ -173,7 +181,10 @@ function PinTypeModal({ pending, onClose, onSelect }) {
             <span className="text-lg text-white">✓</span>
           </div>
           <div className="text-left">
-            <h3 className="text-base font-semibold text-white">🟢 Encontré algo aquí</h3>
+            <h3 className="flex items-center gap-1.5 text-base font-semibold text-white">
+              <CheckCircleIcon size={16} className="shrink-0 text-success" aria-hidden="true" />
+              Encontré algo aquí
+            </h3>
             <p className="text-sm text-green-300/70">
               Reporta un objeto encontrado de forma segura
             </p>
@@ -196,15 +207,22 @@ function ReportModal({ kind, session, onClose, onSubmit, offline = false }) {
       onClose={onClose}
       title={isFound ? 'Objeto encontrado' : 'Reportar objeto perdido'}
       description={
-        isFound
-          ? '🟢 Pin verde: publica el hallazgo, no los detalles.'
-          : '🔴 Pin rojo: el dueño del objeto es quien publica el reporte.'
+        <span className="inline-flex items-center gap-1.5">
+          {isFound ? (
+            <CheckCircleIcon size={16} className="shrink-0 text-success" aria-hidden="true" />
+          ) : (
+            <QuestionCircleIcon size={16} className="shrink-0 text-danger" aria-hidden="true" />
+          )}
+          {isFound
+            ? 'Pin verde: publica el hallazgo, no los detalles.'
+            : 'Pin rojo: el dueño del objeto es quien publica el reporte.'}
+        </span>
       }
     >
       {isFound && (
         <div className="mb-4 flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5">
           <div className="mt-0.5 flex-shrink-0">
-            <IconShield />
+            <ShieldCheckIcon size={16} aria-hidden="true" />
           </div>
           <p className="text-xs leading-relaxed text-amber-200/80">
             <strong>Reporte ciego:</strong> lo que todos leen va en la descripción pública; la
@@ -308,7 +326,16 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
       open
       onClose={onClose}
       title={report.item}
-      description={`${isLost ? '🔴 Perdido' : '🟢 Encontrado'} · ${report.zoneLabel ?? 'Terreno libre'}`}
+      description={
+        <span className="inline-flex items-center gap-1.5">
+          {isLost ? (
+            <QuestionCircleIcon size={16} className="shrink-0 text-danger" aria-hidden="true" />
+          ) : (
+            <CheckCircleIcon size={16} className="shrink-0 text-success" aria-hidden="true" />
+          )}
+          {isLost ? 'Perdido' : 'Encontrado'} · {report.zoneLabel ?? 'Terreno libre'}
+        </span>
+      }
     >
       <div className="space-y-3">
         {report.description && (
@@ -318,8 +345,14 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
         )}
 
         <div className="flex flex-wrap justify-between gap-2 text-xs text-text-muted">
-          <span>👤 {isMine ? 'Tú' : report.alias}</span>
-          <span>🕒 {formatAge(report.timestamp)}</span>
+          <span className="inline-flex items-center gap-1.5">
+            <UserIcon size={16} className="shrink-0" aria-hidden="true" />
+            {isMine ? 'Tú' : report.alias}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <ClockCircleIcon size={16} className="shrink-0" aria-hidden="true" />
+            {formatAge(report.timestamp)}
+          </span>
         </div>
 
         {isMine && !isLost && report.blindDetail && (
@@ -338,7 +371,7 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
         {isMine && isLost && (
           <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-3">
             <div className="flex items-center gap-2">
-              <IconLock />
+              <LockKeyholeIcon size={16} className="shrink-0" aria-hidden="true" />
               <h3 className="text-sm font-semibold text-white">Tu clave de liberación</h3>
             </div>
             <p className="mt-1 text-xs leading-relaxed text-surface-300">
@@ -367,7 +400,7 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
         {isMine && !isLost && linked && (
           <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-3">
             <div className="flex items-center gap-2">
-              <IconLock />
+              <LockKeyholeIcon size={16} className="shrink-0" aria-hidden="true" />
               <h3 className="text-sm font-semibold text-white">Confirmar la entrega</h3>
             </div>
 
@@ -381,8 +414,9 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
                   <button
                     type="button"
                     onClick={() => onResolve(report.id)}
-                    className="min-h-[44px] cursor-pointer rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-all hover:from-green-500 hover:to-green-600 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                    className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-all hover:from-green-500 hover:to-green-600 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                   >
+                    <CheckCircleIcon size={16} className="shrink-0" aria-hidden="true" />
                     Sí, la entrega se realizó
                   </button>
                   <button
@@ -447,7 +481,7 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
                     aria-label="Confirmar la entrega con la clave"
                     className="min-h-[44px] shrink-0 cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-5 py-3 font-semibold text-surface-900 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                   >
-                    🔓
+                    <LockUnlockedIcon size={20} aria-hidden="true" />
                   </button>
                 </div>
               </div>
@@ -471,7 +505,7 @@ function NavButton({ active, children, ...rest }) {
     <button
       type="button"
       aria-current={active ? 'page' : undefined}
-      className={`inline-flex min-h-[44px] cursor-pointer items-center rounded-xl px-3 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none sm:text-sm ${
+      className={`inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none sm:text-sm ${
         active
           ? 'bg-brand-500/20 text-brand-200'
           : 'text-surface-300 hover:bg-surface-700/60 hover:text-white'
@@ -863,7 +897,7 @@ export default function App() {
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500">
-              <IconPin />
+              <MapPointIcon size={16} aria-hidden="true" />
             </div>
             <div>
               <h1 className="font-bold text-brand-300">Objetos Perdidos</h1>
@@ -890,14 +924,17 @@ export default function App() {
 
         <nav className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 px-4 pb-3">
           <NavButton active={view === 'map'} onClick={() => setView('map')}>
-            Mapa
+            <MapIcon size={16} className="shrink-0" aria-hidden="true" />
+            <span className="whitespace-nowrap">Mapa</span>
           </NavButton>
           <NavButton active={view === 'reports'} onClick={() => setView('reports')}>
-            Mis reportes ({myReports.length})
+            <FolderIcon size={16} className="shrink-0" aria-hidden="true" />
+            <span className="whitespace-nowrap">Mis reportes ({myReports.length})</span>
           </NavButton>
           {/* Un solo nodo de texto: el botón es inline-flex y cada trozo suelto
               se vuelve un elemento flexible que pierde su espacio inicial. */}
           <NavButton active={view === 'inbox'} onClick={() => setView('inbox')}>
+            <InboxIcon size={16} className="shrink-0" aria-hidden="true" />
             <span className="whitespace-nowrap">
               Bandeja<span className="hidden sm:inline"> de reclamos</span> ({pendingClaims.length})
             </span>
@@ -910,8 +947,9 @@ export default function App() {
             <button
               type="button"
               onClick={handleSignOut}
-              className="min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-3 py-2 text-xs font-semibold text-surface-300 transition-colors hover:bg-surface-700/60 hover:text-white focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-xl border border-surface-600/60 px-3 py-2 text-xs font-semibold text-surface-300 transition-colors hover:bg-surface-700/60 hover:text-white focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
             >
+              <LogoutIcon size={16} className="shrink-0" aria-hidden="true" />
               Salir
             </button>
           </div>

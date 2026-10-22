@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { MapPointIcon } from '@solar-icons/react/bold/map-point';
 import { INSTITUTIONAL_DOMAINS, MOCK_SESSION, isInstitutionalEmail } from '../data.js';
 
 /*
@@ -14,12 +15,6 @@ const API_URL = import.meta.env.VITE_API_URL ?? '';
 /** Lo que dice la pantalla cuando el servidor ya no reconoce la sesión. */
 const EXPIRED_MESSAGE =
   'Tu sesión venció. Vuelve a entrar con tu correo institucional para seguir.';
-
-const IconPin = () => (
-  <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
-    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 0 1 0-5 2.5 2.5 0 0 1 0 5z" />
-  </svg>
-);
 
 export default function LoginScreen({ onAuthenticated, expired = false, offline = false }) {
   const [email, setEmail] = useState('');
@@ -86,7 +81,7 @@ export default function LoginScreen({ onAuthenticated, expired = false, offline 
       <div className="w-full max-w-md rounded-2xl border border-surface-600/50 bg-surface-800 p-5 shadow-2xl sm:p-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-500">
-            <IconPin />
+            <MapPointIcon size={24} aria-hidden="true" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-brand-300">Objetos Perdidos</h1>
