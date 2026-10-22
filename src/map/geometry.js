@@ -276,3 +276,212 @@ export function searchZones(query, zones) {
   );
   return ranked.map((entry) => entry.zone);
 }
+
+/*
+ * The artwork layer is moved and zoomed with a single CSS transform, so the
+ * pins and the zones inside it stay glued to the artwork at any zoom.
+ *
+ * A transform relates a layer point to a client point:
+ *
+ *   client = origin + translation + scale * layer
+ *
+ * where `origin` is the client position of the artwork layer before the
+ * transform is applied.
+ */
+
+/**
+ * The zoom and pan applied to the artwork layer: `scale` multiplies the
+ * artwork and `x`/`y` move it in CSS pixels.
+ *
+ * @typedef {{ scale: number, x: number, y: number }} MapTransform
+ */
+
+/**
+ * The bounds a transform may not leave: the scale range and the visible area
+ * the artwork has to stay inside.
+ *
+ * @typedef {{
+ *   minScale: number,
+ *   maxScale: number,
+ *   viewport: { width: number, height: number },
+ *   content: { width: number, height: number },
+ *   offset: { x: number, y: number },
+ * }} MapLimits
+ */
+
+/** A value inside a range; a missing bound leaves the value alone. */
+function clamp(value, min, max) {
+  if (min != null && value < min) return min;
+  if (max != null && value > max) return max;
+  return value;
+}
+
+/** The scale inside the bounds of the limits; a missing bound leaves it alone. */
+function clampScale(scale, limits) {
+  const min = limits?.minScale ?? scale;
+  const max = limits?.maxScale ?? scale;
+  return clamp(scale, Math.min(min, max), Math.max(min, max));
+}
+
+/**
+ * The translation that keeps a layer point under a client point at a given
+ * scale, the other side of `client = origin + translation + scale * layer`.
+ */
+function anchorAt(clientPoint, origin, layerPoint, scale) {
+  return {
+    x: clientPoint.x - origin.x - scale * layerPoint.x,
+    y: clientPoint.y - origin.y - scale * layerPoint.y,
+  };
+}
+
+/** A translation without a negative zero, so it never reads as a movement. */
+function tidy(value) {
+  return value === 0 ? 0 : value;
+}
+
+/**
+ * The translation that keeps the artwork inside the visible area: it covers
+ * the area when it is bigger than the area and stays centred when it is
+ * smaller.
+ */
+function clampAxis(offset, scale, limits, axis) {
+  const horizontal = axis === 'x';
+  const viewport = limits?.viewport?.[horizontal ? 'width' : 'height'] ?? 0;
+  const content = limits?.content?.[horizontal ? 'width' : 'height'] ?? 0;
+  const inset = limits?.offset?.[axis] ?? 0;
+  if (!(viewport > 0) || !(content > 0)) return offset;
+
+  const scaled = content * scale;
+  if (scaled >= viewport) return clamp(offset, viewport - inset - scaled, -inset);
+  return (viewport - scaled) / 2 - inset;
+}
+
+/**
+ * Client point to the layer point under it, the inverse of the transform the
+ * artwork layer applies.
+ */
+export function invertTransform(clientPoint, origin, transform) {
+  const scale = transform?.scale || 1;
+  return {
+    x: (clientPoint.x - origin.x - (transform?.x ?? 0)) / scale,
+    y: (clientPoint.y - origin.y - (transform?.y ?? 0)) / scale,
+  };
+}
+
+/**
+ * Transform that keeps a layer point under a fixed client point: the artwork
+ * scales by `factor` around the point, so the scale grows and the translation
+ * moves to hold the point still.
+ */
+export function scaleForPoint(transform, layerPoint, origin, factor) {
+  const client = {
+    x: origin.x + transform.x + transform.scale * layerPoint.x,
+    y: origin.y + transform.y + transform.scale * layerPoint.y,
+  };
+  const scale = transform.scale * factor;
+  const translation = anchorAt(client, origin, layerPoint, scale);
+  return { scale, x: translation.x, y: translation.y };
+}
+
+/**
+ * Transform that zooms toward a client point: the artwork under the cursor
+ * stays under the cursor while the scale grows by `factor`.
+ */
+export function zoomAt(transform, clientPoint, origin, factor, limits) {
+  const layerPoint = invertTransform(clientPoint, origin, transform);
+  const scale = clampScale(transform.scale * factor, limits);
+  const translation = anchorAt(clientPoint, origin, layerPoint, scale);
+  return clampTransform({ scale, x: translation.x, y: translation.y }, limits);
+}
+
+/**
+ * Transform moved by a delta: the artwork follows the finger.
+ */
+export function panBy(transform, dx, dy, limits) {
+  return clampTransform(
+    { scale: transform.scale, x: transform.x + dx, y: transform.y + dy },
+    limits,
+  );
+}
+
+/**
+ * Transform inside the limits: the scale stays between the bounds and the
+ * artwork never leaves the visible area.
+ */
+export function clampTransform(transform, limits) {
+  const scale = clampScale(transform.scale, limits);
+  return {
+    scale,
+    x: tidy(clampAxis(transform.x, scale, limits, 'x')),
+    y: tidy(clampAxis(transform.y, scale, limits, 'y')),
+  };
+}
+
+/**
+ * Zones grouped in reading order: rows from top to bottom and, inside a row,
+ * the zones from left to right, grouped by the vertical span of their boxes.
+ */
+export function zoneReadingOrder(zones) {
+  const placed = (zones ?? []).filter((zone) => zone?.box);
+  const sorted = [...placed].sort(
+    (left, right) => left.box.y - right.box.y || left.box.x - right.box.x,
+  );
+
+  const rows = [];
+  let row = null;
+  for (const zone of sorted) {
+    const center = zone.box.y + zone.box.height / 2;
+    const bottom = zone.box.y + zone.box.height;
+    if (row && center <= row.bottom) {
+      row.zones.push(zone);
+      row.bottom = Math.max(row.bottom, bottom);
+      continue;
+    }
+    row = { zones: [zone], bottom };
+    rows.push(row);
+  }
+
+  return rows.map((entry) => [...entry.zones].sort((left, right) => left.box.x - right.box.x));
+}
+
+/** The horizontal centre of a zone box. */
+function zoneCenter(zone) {
+  return zone.box.x + zone.box.width / 2;
+}
+
+/** The zone of a row whose centre is the closest to the given zone. */
+function nearestInRow(row, zone) {
+  if (!row || row.length === 0) return null;
+  const target = zoneCenter(zone);
+  return row.reduce((best, candidate) =>
+    Math.abs(zoneCenter(candidate) - target) < Math.abs(zoneCenter(best) - target)
+      ? candidate
+      : best,
+  );
+}
+
+/**
+ * The zone the keyboard moves to from `zoneId`: left and right walk the row
+ * and up and down jump to the nearest zone of the row above or below; null
+ * when there is nowhere to go.
+ */
+export function nextZoneInDirection(rows, zoneId, direction) {
+  const list = rows ?? [];
+  let rowIndex = -1;
+  let colIndex = -1;
+  for (let row = 0; row < list.length && rowIndex === -1; row += 1) {
+    const col = list[row].findIndex((zone) => zone.id === zoneId);
+    if (col !== -1) {
+      rowIndex = row;
+      colIndex = col;
+    }
+  }
+  if (rowIndex === -1) return null;
+
+  const row = list[rowIndex];
+  if (direction === 'right') return row[colIndex + 1] ?? list[rowIndex + 1]?.[0] ?? null;
+  if (direction === 'left') return row[colIndex - 1] ?? list[rowIndex - 1]?.at(-1) ?? null;
+  if (direction === 'down') return nearestInRow(list[rowIndex + 1], row[colIndex]);
+  if (direction === 'up') return nearestInRow(list[rowIndex - 1], row[colIndex]);
+  return null;
+}
