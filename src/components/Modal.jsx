@@ -18,8 +18,9 @@ const FOCUSABLE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
-export default function Modal({ open, onClose, title, description, children, footer }) {
+export default function Modal({ open, onClose, title, description, children, footer, testId }) {
   const dialogRef = useRef(null);
+  const overlayRef = useRef(null);
   const restoreRef = useRef(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -50,6 +51,28 @@ export default function Modal({ open, onClose, title, description, children, foo
       const previous = restoreRef.current;
       restoreRef.current = null;
       if (previous && typeof previous.focus === 'function') previous.focus();
+    };
+  }, [open]);
+
+  // El teclado del teléfono achica la ventana visual, no la de maquetación:
+  // el diálogo se mide contra la ventana visual para que su pie no quede
+  // debajo del teclado.
+  useEffect(() => {
+    if (!open) return undefined;
+    const viewport = window.visualViewport;
+    if (!viewport) return undefined;
+
+    const sync = () => {
+      const overlap = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+      overlayRef.current?.style.setProperty('--keyboard', `${overlap}px`);
+    };
+
+    sync();
+    viewport.addEventListener('resize', sync);
+    viewport.addEventListener('scroll', sync);
+    return () => {
+      viewport.removeEventListener('resize', sync);
+      viewport.removeEventListener('scroll', sync);
     };
   }, [open]);
 
@@ -97,7 +120,8 @@ export default function Modal({ open, onClose, title, description, children, foo
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      ref={overlayRef}
+      className="fixed inset-0 z-50 flex items-end justify-center p-4 pb-[calc(1rem_+_var(--keyboard,0px))] sm:items-center sm:pb-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose?.();
       }}
@@ -110,15 +134,16 @@ export default function Modal({ open, onClose, title, description, children, foo
 
       <div
         ref={dialogRef}
+        data-testid={testId}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         onKeyDown={onKeyDown}
-        className="relative flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-surface-600/50 bg-surface-800 shadow-2xl animate-modal-in focus:outline-none"
+        className="relative flex max-h-[calc(90dvh_-_var(--keyboard,0px))] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-surface-600/50 bg-surface-800 shadow-2xl animate-modal-in focus:outline-none"
       >
-        <div className="px-6 pt-5 pb-4">
+        <div className="px-4 pt-4 pb-3 sm:px-6 sm:pt-5 sm:pb-4">
           <h2 id={titleId} className="text-lg font-bold text-white">
             {title}
           </h2>
@@ -129,9 +154,13 @@ export default function Modal({ open, onClose, title, description, children, foo
           )}
         </div>
 
-        <div className="px-6 pb-5 overflow-y-auto">{children}</div>
+        <div className="px-4 pb-4 overflow-y-auto sm:px-6 sm:pb-5">{children}</div>
 
-        {footer && <div className="border-t border-surface-600/40 px-6 py-4">{footer}</div>}
+        {footer && (
+          <div className="border-t border-surface-600/40 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-4">
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

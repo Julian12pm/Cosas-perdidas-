@@ -11,22 +11,28 @@ import { INSTITUTIONAL_DOMAINS, MOCK_SESSION, isInstitutionalEmail } from '../da
 
 const API_URL = import.meta.env.VITE_API_URL ?? '';
 
+/** Lo que dice la pantalla cuando el servidor ya no reconoce la sesión. */
+const EXPIRED_MESSAGE =
+  'Tu sesión venció. Vuelve a entrar con tu correo institucional para seguir.';
+
 const IconPin = () => (
   <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
     <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 0 1 0-5 2.5 2.5 0 0 1 0 5z" />
   </svg>
 );
 
-export default function LoginScreen({ onAuthenticated }) {
+export default function LoginScreen({ onAuthenticated, expired = false, offline = false }) {
   const [email, setEmail] = useState('');
-  const [status, setStatus] = useState('idle'); // idle | sending | sent | error
-  const [message, setMessage] = useState('');
+  // idle | sending | sent | error | expired
+  const [status, setStatus] = useState(expired ? 'expired' : 'idle');
+  const [message, setMessage] = useState(expired ? EXPIRED_MESSAGE : '');
 
   const emailId = useId();
   const hintId = useId();
   const statusId = useId();
 
   const demoMode = API_URL.length === 0;
+  const failed = status === 'error' || status === 'expired';
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -76,8 +82,8 @@ export default function LoginScreen({ onAuthenticated }) {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-surface-900 p-4 text-white font-sans">
-      <div className="w-full max-w-md rounded-2xl border border-surface-600/50 bg-surface-800 p-6 shadow-2xl">
+    <main className="flex flex-1 items-center justify-center bg-surface-900 p-4 text-white font-sans">
+      <div className="w-full max-w-md rounded-2xl border border-surface-600/50 bg-surface-800 p-5 shadow-2xl sm:p-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-500">
             <IconPin />
@@ -95,6 +101,7 @@ export default function LoginScreen({ onAuthenticated }) {
             </label>
             <input
               id={emailId}
+              data-testid="login-email"
               name="email"
               type="email"
               inputMode="email"
@@ -111,7 +118,7 @@ export default function LoginScreen({ onAuthenticated }) {
               placeholder="L2030451@morelia.tecnm.mx"
               aria-describedby={`${hintId} ${statusId}`}
               aria-invalid={status === 'error'}
-              className="w-full rounded-xl border border-input-border bg-surface-700/50 px-4 py-3 text-white placeholder-surface-500 focus:outline-none focus:ring-2 focus:ring-focus"
+              className="min-h-[44px] w-full rounded-xl border border-input-border bg-surface-700/50 px-4 py-3 text-base text-white placeholder-surface-500 focus:outline-none focus:ring-2 focus:ring-focus"
             />
             <p id={hintId} className="mt-1.5 text-xs leading-relaxed text-text-muted">
               La cuenta es institucional: sólo aceptamos buzones de{' '}
@@ -122,17 +129,19 @@ export default function LoginScreen({ onAuthenticated }) {
 
           <p
             id={statusId}
-            role={status === 'error' ? 'alert' : 'status'}
-            aria-live={status === 'error' ? 'assertive' : 'polite'}
-            className={`text-sm ${status === 'error' ? 'text-red-400' : 'text-surface-300'}`}
+            data-testid="login-status"
+            role={failed ? 'alert' : 'status'}
+            aria-live={failed ? 'assertive' : 'polite'}
+            className={`text-sm ${failed ? 'text-red-400' : 'text-surface-300'}`}
           >
             {message}
           </p>
 
           <button
             type="submit"
-            disabled={status === 'sending'}
-            className="w-full cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-lg transition-all hover:from-brand-400 hover:to-brand-500 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            data-testid="login-submit"
+            disabled={status === 'sending' || offline}
+            className="min-h-[44px] w-full cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-lg transition-all hover:from-brand-400 hover:to-brand-500 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
           >
             {status === 'sending' ? 'Enviando…' : 'Recibir enlace'}
           </button>
@@ -147,8 +156,9 @@ export default function LoginScreen({ onAuthenticated }) {
             {status === 'sent' && (
               <button
                 type="button"
+                data-testid="login-demo"
                 onClick={enterDemo}
-                className="mt-3 w-full cursor-pointer rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm font-semibold text-brand-200 transition-colors hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="mt-3 min-h-[44px] w-full cursor-pointer rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm font-semibold text-brand-200 transition-colors hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 Entrar con la sesión de demostración
               </button>

@@ -5,16 +5,18 @@ import ContactCard from './components/ContactCard.jsx';
 import LoginScreen from './components/LoginScreen.jsx';
 import Modal from './components/Modal.jsx';
 import MyReports from './components/MyReports.jsx';
+import OfflineBanner from './components/OfflineBanner.jsx';
+import ReportForm from './components/ReportForm.jsx';
 import ZonePicker from './components/ZonePicker.jsx';
+import { ErrorState, LoadingState } from './components/StateMessage.jsx';
 import {
-  MOCK_CLAIMS,
-  MOCK_PINS,
   RELEASE_KEY_LENGTH,
   RELEASE_KEY_MAX_ATTEMPTS,
   contactFor,
   copyToClipboard,
   formatAge,
   generateUnlockCode,
+  loadCampusData,
   reporterAlias,
 } from './data.js';
 import { artworkToPercent, polygonCentroid, zoneAtPoint } from './map/geometry.js';
@@ -70,8 +72,10 @@ function MapPin({ report, onClick }) {
         event.stopPropagation();
         onClick(report);
       }}
-      className="pointer-events-auto absolute z-10 -translate-x-1/2 -translate-y-full animate-pin-drop cursor-pointer group focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-      style={{ left: `${report.x}%`, top: `${report.y}%` }}
+      className="pointer-events-auto absolute z-10 origin-bottom -translate-x-1/2 -translate-y-full animate-pin-drop cursor-pointer group focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+      // El pin se mide contra el plano que lo sostiene: --pin-scale lo reduce
+      // cuando el croquis es pequeño (un teléfono) para no tapar el edificio.
+      style={{ left: `${report.x}%`, top: `${report.y}%`, scale: 'var(--pin-scale, 1)' }}
       title={`${isLost ? '🔴 Perdido' : '🟢 Encontrado'}: ${report.item}${report.zoneLabel ? ` · ${report.zoneLabel}` : ''}`}
       aria-label={`Pin ${isLost ? 'perdido' : 'encontrado'}: ${report.item}${report.zoneLabel ? ` en ${report.zoneLabel}` : ''}`}
     >
@@ -117,20 +121,8 @@ function PendingMarker({ point }) {
 }
 
 /* ────────────────── Identidad de quien publica el reporte ────────────────── */
-function ReporterCard({ session }) {
-  return (
-    <div className="rounded-xl border border-surface-600/50 bg-surface-700/40 p-3">
-      <p className="text-xs uppercase tracking-wide text-text-muted">Publica</p>
-      <p className="text-sm font-semibold text-white">{session.displayName || session.email}</p>
-      <p className="text-xs text-text-muted">
-        {session.email} · {reporterAlias(session.id)}
-      </p>
-      <p className="mt-1.5 text-xs leading-relaxed text-text-muted">
-        Tu identidad es tu correo institucional: no se escribe un nombre a mano.
-      </p>
-    </div>
-  );
-}
+// La identidad la pone la sesión: el correo institucional, nunca un nombre
+// escrito a mano. La tarjeta del formulario la muestra al que publica.
 
 /* ──────────────── Modal: Elegir tipo de pin ──────────────── */
 function PinTypeModal({ pending, onClose, onSelect }) {
@@ -158,6 +150,7 @@ function PinTypeModal({ pending, onClose, onSelect }) {
       <div className="space-y-3">
         <button
           type="button"
+          data-testid="report-type-lost"
           onClick={() => onSelect('lost')}
           className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-red-500/20 bg-red-500/10 p-4 transition-all duration-300 hover:border-red-500/40 hover:bg-red-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
@@ -172,6 +165,7 @@ function PinTypeModal({ pending, onClose, onSelect }) {
 
         <button
           type="button"
+          data-testid="report-type-found"
           onClick={() => onSelect('found')}
           className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-green-500/20 bg-green-500/10 p-4 transition-all duration-300 hover:border-green-500/40 hover:bg-green-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
@@ -190,172 +184,36 @@ function PinTypeModal({ pending, onClose, onSelect }) {
   );
 }
 
-/* ──────────────── Modal: Formulario Lost (Rojo) ──────────────── */
-function LostFormModal({ session, onClose, onSubmit }) {
-  const [item, setItem] = useState('');
-  const [description, setDescription] = useState('');
-  const itemId = useId();
-  const descriptionId = useId();
-
-  const handleSubmit = (event) => {
-    event.preventDefault();
-    if (!item.trim()) return;
-    onSubmit({ item: item.trim(), description: description.trim() });
-  };
+/* ──────────────── Modal: Formulario del reporte ──────────────── */
+// El mismo formulario para el pin rojo y para el verde: sólo cambian el copy,
+// el dato ciego que pide el verde y el color del botón.
+function ReportModal({ kind, session, onClose, onSubmit, offline = false }) {
+  const isFound = kind === 'found';
 
   return (
     <Modal
       open
       onClose={onClose}
-      title="Reportar objeto perdido"
-      description="🔴 Pin rojo: el dueño del objeto es quien publica el reporte."
+      title={isFound ? 'Objeto encontrado' : 'Reportar objeto perdido'}
+      description={
+        isFound
+          ? '🟢 Pin verde: publica el hallazgo, no los detalles.'
+          : '🔴 Pin rojo: el dueño del objeto es quien publica el reporte.'
+      }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label htmlFor={itemId} className="mb-1.5 block text-sm font-medium text-surface-300">
-            ¿Qué perdiste? *
-          </label>
-          <input
-            id={itemId}
-            type="text"
-            value={item}
-            onChange={(event) => setItem(event.target.value)}
-            className="w-full rounded-xl border border-input-border bg-surface-700/50 px-4 py-3 text-white placeholder-surface-500 focus:outline-none focus:ring-2 focus:ring-focus"
-            required
-            autoFocus
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor={descriptionId}
-            className="mb-1.5 block text-sm font-medium text-surface-300"
-          >
-            Descripción (opcional)
-          </label>
-          <textarea
-            id={descriptionId}
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            rows="3"
-            className="w-full resize-none rounded-xl border border-input-border bg-surface-700/50 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-focus"
-          />
-        </div>
-
-        <ReporterCard session={session} />
-
-        <button
-          type="submit"
-          disabled={!item.trim()}
-          className="w-full cursor-pointer rounded-xl bg-gradient-to-r from-red-600 to-red-700 px-4 py-3 font-semibold text-white shadow-lg transition-all hover:from-red-500 hover:to-red-600 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-        >
-          📌 Clavar pin rojo
-        </button>
-      </form>
-    </Modal>
-  );
-}
-
-/* ──────────────── Modal: Formulario Found (Verde) ──────────────── */
-function FoundFormModal({ session, onClose, onSubmit }) {
-  const [item, setItem] = useState('');
-  const [description, setDescription] = useState('');
-  const [blindDetail, setBlindDetail] = useState('');
-  const itemId = useId();
-  const descriptionId = useId();
-  const blindId = useId();
-
-  const handleSubmit = (event) => {
-    event.preventDefault();
-    if (!item.trim() || !description.trim() || !blindDetail.trim()) return;
-    onSubmit({
-      item: item.trim(),
-      description: description.trim(),
-      blindDetail: blindDetail.trim(),
-    });
-  };
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title="Objeto encontrado"
-      description="🟢 Pin verde: publica el hallazgo, no los detalles."
-    >
-      <div className="mb-4 flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5">
-        <div className="mt-0.5 flex-shrink-0">
-          <IconShield />
-        </div>
-        <p className="text-xs leading-relaxed text-amber-200/80">
-          <strong>Reporte ciego:</strong> lo que todos leen va en la descripción pública; la marca,
-          el color o lo que hay dentro van en el dato ciego, que sólo tú ves.
-        </p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label htmlFor={itemId} className="mb-1.5 block text-sm font-medium text-surface-300">
-            ¿Qué encontraste? *
-          </label>
-          <input
-            id={itemId}
-            type="text"
-            value={item}
-            onChange={(event) => setItem(event.target.value)}
-            placeholder="Ej: dispositivo electrónico, prenda..."
-            className="w-full rounded-xl border border-input-border bg-surface-700/50 px-4 py-3 text-white placeholder-surface-500 focus:outline-none focus:ring-2 focus:ring-focus"
-            required
-            autoFocus
-          />
-        </div>
-
-        <div>
-          <label
-            htmlFor={descriptionId}
-            className="mb-1.5 block text-sm font-medium text-surface-300"
-          >
-            Descripción pública *
-          </label>
-          <textarea
-            id={descriptionId}
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            rows="2"
-            placeholder="Lo que todos van a leer. Sin marca ni color."
-            className="w-full resize-none rounded-xl border border-input-border bg-surface-700/50 px-4 py-3 text-white placeholder-surface-500 focus:outline-none focus:ring-2 focus:ring-focus"
-            required
-          />
-        </div>
-
-        <div>
-          <label htmlFor={blindId} className="mb-1.5 block text-sm font-medium text-surface-300">
-            Dato ciego (privado) *
-          </label>
-          <textarea
-            id={blindId}
-            value={blindDetail}
-            onChange={(event) => setBlindDetail(event.target.value)}
-            rows="2"
-            placeholder="Marca, color, qué hay dentro. Sólo lo lee el dueño legítimo."
-            className="w-full resize-none rounded-xl border border-input-border bg-surface-700/50 px-4 py-3 text-white placeholder-surface-500 focus:outline-none focus:ring-2 focus:ring-focus"
-            required
-          />
-          <p className="mt-1.5 text-xs text-text-muted">
-            Nunca se publica: se queda en tu reporte y el reclamante lo dice para demostrar que es
-            suyo.
+      {isFound && (
+        <div className="mb-4 flex gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5">
+          <div className="mt-0.5 flex-shrink-0">
+            <IconShield />
+          </div>
+          <p className="text-xs leading-relaxed text-amber-200/80">
+            <strong>Reporte ciego:</strong> lo que todos leen va en la descripción pública; la
+            marca, el color o lo que hay dentro van en el dato ciego, que sólo tú ves.
           </p>
         </div>
+      )}
 
-        <ReporterCard session={session} />
-
-        <button
-          type="submit"
-          disabled={!item.trim() || !description.trim() || !blindDetail.trim()}
-          className="w-full cursor-pointer rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-3 font-semibold text-white shadow-lg transition-all hover:from-green-500 hover:to-green-600 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-        >
-          📌 Clavar pin verde
-        </button>
-      </form>
+      <ReportForm kind={kind} session={session} onSubmit={onSubmit} offline={offline} />
     </Modal>
   );
 }
@@ -374,13 +232,20 @@ function ReleaseKeyModal({ report, onClose }) {
       onClose={onClose}
       title="Tu clave de liberación"
       description="Cópiala: es la que dicta el dueño del objeto perdido."
+      testId="release-key-dialog"
     >
       <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-4 text-center">
-        <p className="font-mono text-4xl tracking-[0.4em] text-white">{report.releaseKey}</p>
+        <p
+          data-testid="release-key-value"
+          className="font-mono text-3xl tracking-[0.4em] text-white sm:text-4xl"
+        >
+          {report.releaseKey}
+        </p>
         <button
           type="button"
+          data-testid="release-key-copy"
           onClick={copy}
-          className="mt-3 cursor-pointer rounded-lg border border-brand-500/40 px-3 py-1.5 text-xs font-semibold text-brand-200 transition-colors hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-3 min-h-[44px] cursor-pointer rounded-lg border border-brand-500/40 px-3 py-2 text-xs font-semibold text-brand-200 transition-colors hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           {copied ? 'Clave copiada' : 'Copiar clave'}
         </button>
@@ -466,7 +331,9 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
           </div>
         )}
 
-        {approved && <ContactCard contact={approved.contact} />}
+        {approved && (
+          <ContactCard contact={approved.contact} claimId={approved.id} single={false} />
+        )}
 
         {isMine && isLost && (
           <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-3">
@@ -485,7 +352,7 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
               <button
                 type="button"
                 onClick={copy}
-                className="cursor-pointer rounded-lg border border-surface-600/60 px-2.5 py-1 text-xs text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="min-h-[44px] cursor-pointer rounded-lg border border-surface-600/60 px-3 py-2 text-xs text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 {copied ? 'Clave copiada' : 'Copiar clave'}
               </button>
@@ -514,14 +381,14 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
                   <button
                     type="button"
                     onClick={() => onResolve(report.id)}
-                    className="cursor-pointer rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-all hover:from-green-500 hover:to-green-600 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                    className="min-h-[44px] cursor-pointer rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-all hover:from-green-500 hover:to-green-600 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                   >
                     Sí, la entrega se realizó
                   </button>
                   <button
                     type="button"
                     onClick={() => setConfirming(false)}
-                    className="cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                    className="min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                   >
                     Cancelar
                   </button>
@@ -536,9 +403,20 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
                 <label htmlFor={codeId} className="sr-only">
                   Clave de liberación
                 </label>
-                <div className="mt-2 flex gap-2">
+                {error && (
+                  <p id={`${codeId}-error`} role="alert" className="mt-2 text-xs text-red-400">
+                    {error}
+                  </p>
+                )}
+                <p className="mt-2 text-xs text-text-muted">
+                  Te quedan {attemptsLeft} de {linked.releaseMaxAttempts} intentos.
+                </p>
+                {/* La acción se queda pegada al borde inferior del diálogo: con el
+                    teclado abierto el botón no puede quedar debajo del pliegue. */}
+                <div className="sticky bottom-0 z-10 mt-2 flex gap-2 bg-surface-800 py-2">
                   <input
                     id={codeId}
+                    data-testid="release-key-input"
                     type="text"
                     inputMode="numeric"
                     maxLength={RELEASE_KEY_LENGTH}
@@ -555,7 +433,7 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
                     }}
                     placeholder={'• '.repeat(RELEASE_KEY_LENGTH).trim()}
                     aria-describedby={error ? `${codeId}-error` : undefined}
-                    className={`w-full rounded-xl border bg-surface-700/50 px-4 py-3 text-center font-mono text-xl tracking-[0.5em] text-white focus:outline-none focus:ring-2 focus:ring-focus transition-all ${
+                    className={`min-h-[44px] w-full rounded-xl border bg-surface-700/50 px-4 py-3 text-center font-mono text-xl tracking-[0.5em] text-white focus:outline-none focus:ring-2 focus:ring-focus transition-all ${
                       error
                         ? 'animate-shake border-red-500 bg-red-500/10'
                         : 'border-input-border focus:border-brand-500'
@@ -563,21 +441,15 @@ export function PinInfoModal({ report, session, linked, claims, onClose, onResol
                   />
                   <button
                     type="button"
+                    data-testid="release-key-submit"
                     onClick={submitKey}
                     disabled={code.length !== RELEASE_KEY_LENGTH}
-                    className="cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-5 py-3 font-semibold text-surface-900 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                    aria-label="Confirmar la entrega con la clave"
+                    className="min-h-[44px] shrink-0 cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-5 py-3 font-semibold text-surface-900 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                   >
                     🔓
                   </button>
                 </div>
-                {error && (
-                  <p id={`${codeId}-error`} role="alert" className="mt-2 text-xs text-red-400">
-                    {error}
-                  </p>
-                )}
-                <p className="mt-2 text-xs text-text-muted">
-                  Te quedan {attemptsLeft} de {linked.releaseMaxAttempts} intentos.
-                </p>
               </div>
             )}
           </div>
@@ -599,7 +471,7 @@ function NavButton({ active, children, ...rest }) {
     <button
       type="button"
       aria-current={active ? 'page' : undefined}
-      className={`cursor-pointer rounded-xl px-3 py-1.5 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+      className={`inline-flex min-h-[44px] cursor-pointer items-center rounded-xl px-3 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none sm:text-sm ${
         active
           ? 'bg-brand-500/20 text-brand-200'
           : 'text-surface-300 hover:bg-surface-700/60 hover:text-white'
@@ -634,15 +506,64 @@ function storeSession(session) {
   }
 }
 
+/**
+ * Una petición al API. Un 401 significa que la sesión ya no vale: la app
+ * vuelve al acceso con un aviso, en lugar de quedarse en silencio.
+ */
+async function apiFetch(path, onUnauthorized) {
+  const response = await fetch(`${API_URL}${path}`, { credentials: 'include' });
+  if (response.status === 401) onUnauthorized?.();
+  return response;
+}
+
+/** El navegador sabe si hay conexión, y avisa cuando la hay o deja de haberla. */
+function useOnline() {
+  const [online, setOnline] = useState(
+    () => typeof navigator === 'undefined' || navigator.onLine !== false,
+  );
+
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  return online;
+}
+
 /* ━━━━━━━━━━━━━━━━━━━━━━━━ APP PRINCIPAL ━━━━━━━━━━━━━━━━━━━━━━━━ */
 export default function App() {
   const [session, setSession] = useState(() => readStoredSession());
   const [checking, setChecking] = useState(API_URL.length > 0);
-  const [reports, setReports] = useState(MOCK_PINS);
-  const [claims, setClaims] = useState(MOCK_CLAIMS);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [reports, setReports] = useState([]);
+  const [claims, setClaims] = useState([]);
+  // loading | ready | error
+  const [campus, setCampus] = useState('loading');
   const [view, setView] = useState('map');
   const [modal, setModal] = useState(null);
   const [pending, setPending] = useState(null);
+  const online = useOnline();
+
+  /** El servidor ya no reconoce la sesión: se vuelve al acceso, avisando. */
+  const handleUnauthorized = useCallback(() => {
+    setSessionExpired(true);
+    setSession(null);
+    storeSession(null);
+    // Los datos del estudiante anterior no se quedan en pantalla: la sesión
+    // siguiente no debe ver un solo instante lo que publicó otro.
+    setReports([]);
+    setClaims([]);
+    setCampus('loading');
+    setView('map');
+    setModal(null);
+    setPending(null);
+  }, []);
 
   // Con API configurada la cookie es la sesión: se recupera al cargar.
   useEffect(() => {
@@ -651,7 +572,9 @@ export default function App() {
     let cancelled = false;
     const restore = async () => {
       try {
-        const response = await fetch(`${API_URL}/auth/me`, { credentials: 'include' });
+        const response = await apiFetch('/auth/me', () => {
+          if (!cancelled) handleUnauthorized();
+        });
         if (!response.ok) return;
         const user = await response.json();
         if (!cancelled) setSession(user);
@@ -666,12 +589,35 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [handleUnauthorized]);
 
   const handleAuthenticated = useCallback((next) => {
     setSession(next);
+    setSessionExpired(false);
     storeSession(next);
   }, []);
+
+  /** Los datos del campus: se piden y, si fallan, la pantalla lo dice. */
+  const loadCampus = useCallback(async () => {
+    // Un refresco no borra lo que ya está en pantalla: el croquis se queda
+    // mientras llegan los datos nuevos.
+    setCampus((previous) => (previous === 'ready' ? 'ready' : 'loading'));
+    try {
+      const data = await loadCampusData();
+      setReports(data.reports);
+      setClaims(data.claims);
+      setCampus('ready');
+    } catch {
+      // Sin señal no es un fallo del campus: lo explica el aviso sin conexión.
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      setCampus(offline ? 'offline' : 'error');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!session || !online) return;
+    void loadCampus();
+  }, [session, online, loadCampus]);
 
   const handleSignOut = useCallback(async () => {
     if (API_URL.length > 0) {
@@ -683,6 +629,11 @@ export default function App() {
     }
     setSession(null);
     storeSession(null);
+    // Los reportes y los reclamos de la sesión que sale se borran de la
+    // memoria: el siguiente que entre no los ve ni un instante.
+    setReports([]);
+    setClaims([]);
+    setCampus('loading');
     setView('map');
     setModal(null);
     setPending(null);
@@ -868,16 +819,32 @@ export default function App() {
     [claims],
   );
 
+  // Sin conexión manda sobre todo: el aviso vive en toda la app y ninguna
+  // pantalla puede fingir que sí tiene datos frescos. Pero si no hay nada
+  // guardado, el fallo se dice: un panel de error con su reintento, no un
+  // croquis vacío que parece un campus sin reportes.
+  const hasData = reports.length > 0 || claims.length > 0;
+  const screenState = !online ? (hasData ? 'offline' : 'error') : campus;
+
   if (checking) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-surface-900 text-sm text-text-muted">
-        Abriendo la sesión…
+      <main className="flex min-h-dvh items-center justify-center bg-surface-900 p-4">
+        <LoadingState title="Abriendo la sesión…" />
       </main>
     );
   }
 
   if (!session) {
-    return <LoginScreen onAuthenticated={handleAuthenticated} />;
+    return (
+      <div className="flex min-h-dvh flex-col bg-surface-900 font-sans text-white">
+        {!online && <OfflineBanner />}
+        <LoginScreen
+          onAuthenticated={handleAuthenticated}
+          expired={sessionExpired}
+          offline={!online}
+        />
+      </div>
+    );
   }
 
   const lostCount = mapReports.filter((report) => report.type === 'lost').length;
@@ -891,9 +858,9 @@ export default function App() {
     : null;
 
   return (
-    <div className="flex min-h-screen flex-col bg-surface-900 font-sans text-white">
+    <div className="flex min-h-dvh flex-col bg-surface-900 font-sans text-white">
       <header className="sticky top-0 z-40 border-b border-surface-800 bg-surface-900/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-500">
               <IconPin />
@@ -904,11 +871,17 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 text-sm">
-            <div className="flex items-center gap-1.5 rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-red-300">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:gap-3 text-sm">
+            <div
+              data-testid="header-lost-count"
+              className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-xs text-red-300 sm:px-3 sm:text-sm"
+            >
               <div className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> {lostCount} perdidos
             </div>
-            <div className="flex items-center gap-1.5 rounded-full border border-green-500/20 bg-green-500/10 px-3 py-1 text-green-300">
+            <div
+              data-testid="header-found-count"
+              className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-green-500/20 bg-green-500/10 px-2.5 py-1 text-xs text-green-300 sm:px-3 sm:text-sm"
+            >
               <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" /> {foundCount}{' '}
               encontrados
             </div>
@@ -922,8 +895,12 @@ export default function App() {
           <NavButton active={view === 'reports'} onClick={() => setView('reports')}>
             Mis reportes ({myReports.length})
           </NavButton>
+          {/* Un solo nodo de texto: el botón es inline-flex y cada trozo suelto
+              se vuelve un elemento flexible que pierde su espacio inicial. */}
           <NavButton active={view === 'inbox'} onClick={() => setView('inbox')}>
-            Bandeja de reclamos ({pendingClaims.length})
+            <span className="whitespace-nowrap">
+              Bandeja<span className="hidden sm:inline"> de reclamos</span> ({pendingClaims.length})
+            </span>
           </NavButton>
 
           <div className="ml-auto flex items-center gap-3">
@@ -933,47 +910,79 @@ export default function App() {
             <button
               type="button"
               onClick={handleSignOut}
-              className="cursor-pointer rounded-xl border border-surface-600/60 px-3 py-1.5 text-xs font-semibold text-surface-300 transition-colors hover:bg-surface-700/60 hover:text-white focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-3 py-2 text-xs font-semibold text-surface-300 transition-colors hover:bg-surface-700/60 hover:text-white focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
             >
               Salir
             </button>
           </div>
         </nav>
+
+        {!online && <OfflineBanner />}
       </header>
 
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center gap-4 p-4 md:p-6">
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center gap-4 p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] md:p-6 md:pb-6">
         {view === 'map' && (
-          <>
+          <div className="flex w-full flex-col items-center gap-4">
             <div className="w-full max-w-2xl">
-              <ZonePicker zones={ZONES} onSelect={handleSelectZone} />
+              <ZonePicker zones={ZONES} onSelect={handleSelectZone} state={screenState} />
             </div>
 
-            <CampusMap
-              zones={ZONES}
-              image={MAP_IMAGE}
-              onSelectZone={handleSelectZone}
-              onPick={handlePick}
-            >
-              {mapReports.map((report) => (
-                <MapPin key={report.id} report={report} onClick={handlePinClick} />
-              ))}
+            {screenState === 'error' ? (
+              <div className="w-full max-w-2xl">
+                <ErrorState
+                  title="No pudimos cargar el campus"
+                  description="Revisa tu conexión e inténtalo de nuevo."
+                  onRetry={loadCampus}
+                />
+              </div>
+            ) : screenState === 'loading' ? (
+              <div
+                aria-hidden="true"
+                className="aspect-[846/647] w-full max-w-2xl rounded-xl border-2 border-surface-700 bg-surface-800"
+              />
+            ) : (
+              <CampusMap
+                zones={ZONES}
+                image={MAP_IMAGE}
+                onSelectZone={handleSelectZone}
+                onPick={handlePick}
+                empty={mapReports.length === 0}
+                offline={!online}
+              >
+                {mapReports.map((report) => (
+                  <MapPin key={report.id} report={report} onClick={handlePinClick} />
+                ))}
 
-              {pending && <PendingMarker point={pending} />}
-            </CampusMap>
+                {pending && <PendingMarker point={pending} />}
+              </CampusMap>
+            )}
 
             <p className="max-w-2xl text-center text-xs leading-relaxed text-text-muted">
               Toca el croquis para marcar un objeto perdido o encontrado. Con el teclado: Tab hasta
               el plano y usa las flechas para recorrer las zonas, Enter para elegir una.
             </p>
-          </>
+          </div>
         )}
 
         {view === 'reports' && (
-          <MyReports reports={myReports} claims={claims} onOpenReport={handlePinClick} />
+          <MyReports
+            reports={myReports}
+            claims={claims}
+            onOpenReport={handlePinClick}
+            state={screenState}
+            onRetry={loadCampus}
+          />
         )}
 
         {view === 'inbox' && (
-          <ClaimInbox claims={claims} onApprove={handleApproveClaim} onReject={handleRejectClaim} />
+          <ClaimInbox
+            claims={claims}
+            onApprove={handleApproveClaim}
+            onReject={handleRejectClaim}
+            state={screenState}
+            onRetry={loadCampus}
+            offline={!online}
+          />
         )}
       </main>
 
@@ -981,10 +990,22 @@ export default function App() {
         <PinTypeModal pending={pending} onClose={closeModal} onSelect={handleTypeSelect} />
       )}
       {modal?.kind === 'lost' && (
-        <LostFormModal session={session} onClose={closeModal} onSubmit={handleLostSubmit} />
+        <ReportModal
+          kind="lost"
+          session={session}
+          onClose={closeModal}
+          onSubmit={handleLostSubmit}
+          offline={!online}
+        />
       )}
       {modal?.kind === 'found' && (
-        <FoundFormModal session={session} onClose={closeModal} onSubmit={handleFoundSubmit} />
+        <ReportModal
+          kind="found"
+          session={session}
+          onClose={closeModal}
+          onSubmit={handleFoundSubmit}
+          offline={!online}
+        />
       )}
       {modal?.kind === 'release-key' && (
         <ReleaseKeyModal report={modal.report} onClose={closeModal} />
