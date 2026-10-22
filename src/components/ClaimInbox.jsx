@@ -1,0 +1,186 @@
+import { useState } from 'react';
+import Modal from './Modal.jsx';
+import ContactCard from './ContactCard.jsx';
+import { formatAge } from '../data.js';
+
+/*
+ * La bandeja de reclamos: lo que los demás piden contra tus reportes y lo que
+ * tú pediste contra los reportes ajenos. Aprobar libera el contacto de la
+ * otra parte; rechazar es una acusación, así que pide confirmación antes de
+ * quedar registrada.
+ */
+
+const STATUS_LABELS = {
+  pending: 'Pendiente',
+  approved: 'Aprobado',
+  rejected: 'Rechazado',
+  expired: 'Expirado',
+};
+
+/** Una fila de la bandeja, con el dato ciego que ofrece el reclamante. */
+function ClaimRow({ claim, actions }) {
+  return (
+    <li className="rounded-xl border border-surface-600/50 bg-surface-700/30 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="font-semibold text-white">{claim.reportTitle}</p>
+          <p className="text-xs text-text-muted">
+            {claim.claimantAlias} · {formatAge(claim.createdAt)}
+          </p>
+        </div>
+        <span className="rounded-full bg-surface-700/70 px-2.5 py-0.5 text-xs font-semibold text-surface-200">
+          {STATUS_LABELS[claim.status] ?? claim.status}
+        </span>
+      </div>
+
+      {claim.providedBlindDetail && (
+        <p className="mt-2 rounded-lg bg-surface-800/70 p-2 text-sm text-surface-200">
+          <span className="text-xs uppercase tracking-wide text-text-muted">Dato ciego: </span>
+          {claim.providedBlindDetail}
+        </p>
+      )}
+
+      {claim.message && <p className="mt-2 text-sm text-surface-300">“{claim.message}”</p>}
+
+      {actions}
+
+      {claim.status === 'approved' && claim.contact && (
+        <div className="mt-3">
+          <ContactCard contact={claim.contact} />
+        </div>
+      )}
+    </li>
+  );
+}
+
+export default function ClaimInbox({ claims, onApprove, onReject }) {
+  const [decision, setDecision] = useState(null);
+
+  const incoming = claims.filter((claim) => claim.direction === 'incoming');
+  const outgoing = claims.filter((claim) => claim.direction === 'outgoing');
+
+  const confirm = () => {
+    if (!decision) return;
+    if (decision.kind === 'approve') onApprove(decision.claim.id);
+    else onReject(decision.claim.id);
+    setDecision(null);
+  };
+
+  return (
+    <section className="w-full max-w-3xl space-y-5">
+      <div>
+        <h2 className="mb-1 text-lg font-bold text-white">Bandeja de reclamos</h2>
+        <p className="text-sm text-text-muted">
+          Apruebas lo que te piden y decides lo que pides. Sin chat: cuando apruebas, se libera la
+          tarjeta de contacto.
+        </p>
+      </div>
+
+      <div>
+        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-brand-300">
+          Recibidos ({incoming.length})
+        </h3>
+        {incoming.length === 0 ? (
+          <p className="rounded-xl border border-surface-600/50 bg-surface-800 p-3 text-sm text-text-muted">
+            Nadie ha reclamado tus reportes.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {incoming.map((claim) => (
+              <ClaimRow
+                key={claim.id}
+                claim={claim}
+                actions={
+                  claim.status === 'pending' ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDecision({ claim, kind: 'approve' })}
+                        className="cursor-pointer rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-all hover:from-green-500 hover:to-green-600 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                      >
+                        Aprobar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDecision({ claim, kind: 'reject' })}
+                        className="cursor-pointer rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                      >
+                        Rechazar
+                      </button>
+                    </div>
+                  ) : null
+                }
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div>
+        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-brand-300">
+          Enviados ({outgoing.length})
+        </h3>
+        {outgoing.length === 0 ? (
+          <p className="rounded-xl border border-surface-600/50 bg-surface-800 p-3 text-sm text-text-muted">
+            No has reclamado ningún reporte.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {outgoing.map((claim) => (
+              <ClaimRow key={claim.id} claim={claim} actions={null} />
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <Modal
+        open={decision !== null}
+        onClose={() => setDecision(null)}
+        title={decision?.kind === 'reject' ? 'Rechazar el reclamo' : 'Aprobar el reclamo'}
+        description={
+          decision?.kind === 'reject'
+            ? 'Rechazar es una acusación: queda un strike contra el reclamante.'
+            : 'Aprobar libera el contacto del reclamante para que coordinen la entrega.'
+        }
+        footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDecision(null)}
+              className="cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={confirm}
+              className={`cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold text-white transition-all focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                decision?.kind === 'reject'
+                  ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600'
+                  : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600'
+              }`}
+            >
+              {decision?.kind === 'reject' ? 'Sí, rechazar' : 'Sí, aprobar'}
+            </button>
+          </div>
+        }
+      >
+        <p className="text-sm leading-relaxed text-surface-300">
+          {decision?.kind === 'reject' ? (
+            <>
+              Se registrará un strike contra{' '}
+              <span className="font-semibold text-white">{decision.claim.claimantAlias}</span>. Un
+              strike es una acusación, no una sentencia: un administrador la revisa y puede levantar
+              el bloqueo.
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-white">{decision?.claim.claimantAlias}</span> verá
+              tu nombre y tu correo institucional para coordinar la entrega del objeto.
+            </>
+          )}
+        </p>
+      </Modal>
+    </section>
+  );
+}

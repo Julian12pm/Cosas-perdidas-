@@ -75,8 +75,8 @@ export default function ZonePicker({ zones, onSelect }) {
 
   return (
     <div ref={containerRef} className="relative w-full max-w-2xl">
-      <div className="flex items-center gap-2 rounded-xl border border-surface-600/60 bg-surface-800/80 px-3 py-2.5 transition-colors focus-within:border-brand-500/70 focus-within:ring-2 focus-within:ring-brand-500/20">
-        <span className="text-surface-400" aria-hidden="true">
+      <div className="flex items-center gap-2 rounded-xl border border-surface-600/60 bg-surface-800/80 px-3 py-2.5 transition-colors focus-within:border-brand-500/70 focus-within:ring-2 focus-within:ring-focus">
+        <span className="text-text-muted" aria-hidden="true">
           🔎
         </span>
         <input
@@ -114,7 +114,7 @@ export default function ZonePicker({ zones, onSelect }) {
               role="option"
               aria-selected={false}
               aria-disabled="true"
-              className="px-3 py-4 text-center text-sm text-surface-400"
+              className="px-3 py-4 text-center text-sm text-text-muted"
             >
               Sin coincidencias
             </li>
