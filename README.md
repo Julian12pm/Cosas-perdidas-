@@ -5,10 +5,11 @@ A campus lost & found for Instituto Tecnológico de Morelia. Students report wha
 campus, and the two sides are matched through a claim inbox with a release key that closes
 the case.
 
-> **Status: interactive prototype.** The map, the report flow and the release key work in the
-> browser. There is no server yet: reports live in memory and disappear on reload. The
-> production architecture is specified in [`odd/tasks/objetos-perdidos-itm.md`](odd/tasks/objetos-perdidos-itm.md)
-> and is being built phase by phase.
+> **Status: the backend is real, the web app is not wired to it yet.** The API, the database schema and
+> the domain rules are built and covered by tests, including an end-to-end journey. The browser app
+> still runs on mock data: it needs the institutional login and the live pins (plan task T21). The
+> full architecture is specified in
+> [`odd/tasks/objetos-perdidas-itm.md`](odd/tasks/objetos-perdidas-itm.md).
 
 ---
 
@@ -43,9 +44,51 @@ click.
 | Language        | JavaScript today, TypeScript by migration (`tsconfig.json` with `allowJs` + `jsx`)                           |
 | Tests           | Vitest 5 (bundled with Vite+) via `vp test`                                                                  |
 
-**Target backend** (not built yet): Hono + Zod on Node, PostgreSQL 16 + Drizzle, argon2
-sessions, SSE for the claim inbox, `node-cron` for expiry, `sharp` for photo re-encoding,
-Docker Compose for self-hosting at the institute.
+**Backend** (built): Hono 4.13 + Zod 4.6 contracts, PostgreSQL 16 with Drizzle 0.45 (12 tables, generated
+migrations), argon2-ready password hashing, opaque sessions, SSE for the inbox, `node-cron` for expiry and
+PII purging, `sharp` planned for photos.
+
+---
+
+## The API
+
+The server lives in `api/` inside the same package — one lockfile, one test runner, one CI. It runs on
+Node 24's native TypeScript execution (no build step) and is type-checked by the root `tsc --noEmit`.
+
+```bash
+vp run db:up        # postgres:16 in Docker Compose
+vp run api:migrate  # apply the generated migrations
+vp run api          # http://localhost:3001
+curl localhost:3001/health
+```
+
+| Route                                   | What it does                                                                                                                |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/magic-link`                 | Requests the institutional magic link. Always answers **202** — it never reveals whether the address is registered.         |
+| `GET /auth/magic-link/:token`           | Consumes the single-use token, creates the session, sets the `op_session` cookie.                                           |
+| `POST /auth/logout` · `GET /auth/me`    | Ends the session · returns the current user.                                                                                |
+| `GET /zones`                            | The campus catalogue (seeded from the generated `src/map/zones.js`).                                                        |
+| `GET /reports`                          | The pins for the map, public projection only.                                                                               |
+| `POST /reports`                         | Creates a report. A `lost` report returns the **release key once**; a `found` report keeps its identifying details private. |
+| `POST /reports/:id/matches` · `/claims` | Links a lost report with a found one · files a claim with the blind datum.                                                  |
+| `POST /claims/:id/decide`               | The report owner approves (releases the contact) or rejects (a strike against the claimant).                                |
+| `POST /reports/:id/release-key`         | The holder confirms the delivery with the key the owner dictated. Wrong key → 422, exhausted budget → 429, replay → 409.    |
+| `POST /reports/:id/custody`             | Deposits the object at a safe point or picks it up.                                                                         |
+| `GET /reports/:id/contact`              | The contact card of the **other** party, only after an approved claim.                                                      |
+| `GET /inbox` · `GET /events`            | The claim inbox · the SSE stream of notifications.                                                                          |
+
+### Environment
+
+Copy `api/.env.example` to `api/.env`. `DATABASE_URL`, `PORT`, `PUBLIC_URL`, `RELEASE_KEY_PEPPER` and
+`SESSION_SECRET` come from the environment, never from the repository. `MAIL_TRANSPORT` is `console`
+until the institute delegates a sending domain: the magic link is printed to the server log.
+
+### How it is tested
+
+`api/src/test/db.ts` boots **PGlite** — a real Postgres, in process — and applies the generated
+migrations verbatim, so the routes run against actual SQL semantics without a container.
+`api/src/e2e/claim-flow.test.ts` walks the whole journey: report → blind claim → approval → release key
+→ the pins leave the map and the contact card appears.
 
 ---
 
