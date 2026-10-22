@@ -11,6 +11,11 @@
  * playwright-core. It starts the dev server only when nothing answers at
  * APP_URL, and it always stops what it started.
  *
+ * The port is not 5173: on this machine that one belongs to another project.
+ * The journey picks a free port of its own (override it with APP_URL) and,
+ * before it drives a server it did not start, it makes sure the server is
+ * THIS app: a port served by another project is an error, not a journey.
+ *
  *   vp exec node scripts/smoke-journey.mjs
  */
 
@@ -33,11 +38,19 @@ import { MAP_IMAGE, ZONE_BY_ID, ZONES } from '../src/map/zones.js';
 /* ─────────────────────────── Configuración ─────────────────────────── */
 
 export const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-export const APP_URL = process.env.APP_URL ?? 'http://localhost:5173';
+export const APP_URL = process.env.APP_URL ?? 'http://localhost:5199';
 export const SHOTS_DIR = join(ROOT, '.e2e', 'screenshots');
 const CHROMIUM_PATH = process.env.CHROMIUM_PATH ?? '/usr/bin/chromium';
 const SERVER_BOOT_TIMEOUT_MS = 120_000;
 const STEP_TIMEOUT_MS = 15_000;
+
+/**
+ * La huella de esta app en el HTML que sirve el servidor de desarrollo.
+ *
+ * El 5173 de esta máquina lo tiene otro proyecto: sin esta comprobación la
+ * prueba mediría la app ajena y reportaría unjourney vacío.
+ */
+const APP_MARKERS = ['Objetos Perdidos ITM', '/src/main.jsx'];
 
 const VIEWPORTS = [
   { name: 'desktop', width: 1280, height: 900 },
@@ -73,18 +86,44 @@ export async function isUp(url) {
 }
 
 /**
+ * ¿El que contesta en esa URL es esta app?
+ *
+ * El puerto puede estarlo otro proyecto: la prueba lo dice en vez de medir la
+ * app equivocada.
+ */
+export async function servesOurApp(url) {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(2500) });
+    const html = await response.text();
+    return APP_MARKERS.every((marker) => html.includes(marker));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Devuelve el servidor: el que ya esté corriendo o uno propio.
  * `stop()` sólo mata lo que este proceso arrancó.
  */
 export async function ensureServer(url = APP_URL) {
   if (await isUp(url)) {
+    // Un servidor que ya estaba puede ser el de otro proyecto: la prueba
+    // reúsa el suyo, pero nunca mide el de otro.
+    if (!(await servesOurApp(url))) {
+      throw new Error(
+        `El puerto de ${url} no lo sirve esta app (puede estarlo otra aplicación). ` +
+          'Corre la prueba con APP_URL=http://localhost:5199 o con otro puerto libre.',
+      );
+    }
     return { started: false, stop: async () => {}, log: [] };
   }
 
   const port = new URL(url).port || '5173';
   const bin = join(ROOT, 'node_modules', '.bin', 'vp');
   const log = [];
-  const child = spawn(bin, ['dev', '--port', port], {
+  // `--strictPort`: si el puerto está ocupado, el servidor muere en vez de
+  // mudarse a otro y dejar la prueba conduciendo la app equivocada.
+  const child = spawn(bin, ['dev', '--port', port, '--strictPort'], {
     cwd: ROOT,
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -113,7 +152,15 @@ export async function ensureServer(url = APP_URL) {
 
   const deadline = Date.now() + SERVER_BOOT_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (await isUp(url)) return { started: true, stop, log };
+    if (await isUp(url)) {
+      if (!(await servesOurApp(url))) {
+        await stop();
+        throw new Error(
+          `El puerto de ${url} no lo sirve esta app (puede estarlo otra aplicación).`,
+        );
+      }
+      return { started: true, stop, log };
+    }
     if (child.exitCode !== null) {
       throw new Error(`El servidor de desarrollo murió:\n${log.join('')}`);
     }
