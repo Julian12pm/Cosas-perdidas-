@@ -526,12 +526,15 @@ async function runJourney(browser, viewport) {
     const naturalWidth = await page.evaluate(
       () => document.querySelector('[data-testid="map-raster"]')?.naturalWidth ?? 0,
     );
+    const naturalHeight = await page.evaluate(
+      () => document.querySelector('[data-testid="map-raster"]')?.naturalHeight ?? 0,
+    );
     record(
       vp,
       'el croquis se descarga y se dibuja',
-      naturalWidth > 0,
-      'naturalWidth > 0',
-      `naturalWidth=${naturalWidth}`,
+      naturalWidth === 700 && naturalHeight === 647,
+      'naturalWidth=700 y naturalHeight=647',
+      `naturalWidth=${naturalWidth}, naturalHeight=${naturalHeight}`,
     );
     const zones = await page.locator('[data-zone-id]').count();
     record(
@@ -1629,7 +1632,7 @@ async function runJourney(browser, viewport) {
     /* ── 20. El croquis que no llega se dice y se puede reintentar ───── */
     // El servidor responde 200 pero con un cuerpo que no es una imagen: el
     // croquis "no llega" sin ensuciar la consola con un error de red.
-    await page.route('**/mapa-itm.png', (route) =>
+    await page.route('**/mapa-itm-dark.png', (route) =>
       route.fulfill({ status: 200, contentType: 'image/png', body: 'no soy una imagen' }),
     );
     await page.reload({ waitUntil: 'commit' });
@@ -1642,7 +1645,7 @@ async function runJourney(browser, viewport) {
       '1 panel state-error y 0 zonas pintadas',
       `${await page.locator(t('state-error')).count()} panel(es), ${await page.locator('[data-zone-id]').count()} zonas`,
     );
-    await page.unroute('**/mapa-itm.png');
+    await page.unroute('**/mapa-itm-dark.png');
     await page.getByRole('button', { name: 'Reintentar' }).click();
     await page.waitForFunction(() => document.querySelectorAll('[data-zone-id]').length > 0);
     record(

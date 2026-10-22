@@ -17,6 +17,10 @@ import {
  * zones and the pins live inside that layer, so a zoom moves them with the
  * artwork instead of leaving them behind.
  *
+ * The raster is the dark crop of the official plan (the legend column, the
+ * title card and the crest are cut away), remapped to the app's palette by
+ * the generator that also produces the zone catalogue.
+ *
  * The raster carries the same transform as the layer, so the picture, the
  * zones and the pins zoom and pan as one thing.
  *
@@ -466,7 +470,7 @@ export default function CampusMap({
           key={attempt}
           ref={imgRef}
           data-testid="map-raster"
-          src={image?.src ?? '/mapa-itm.png'}
+          src={image?.src ?? '/mapa-itm-dark.png'}
           alt="Plano General del Campus ITM"
           draggable={false}
           onLoad={() => setRaster('ready')}

@@ -976,7 +976,7 @@ export default function App() {
             ) : screenState === 'loading' ? (
               <div
                 aria-hidden="true"
-                className="aspect-[846/647] w-full max-w-2xl rounded-xl border-2 border-surface-700 bg-surface-800"
+                className="aspect-[700/647] w-full max-w-2xl rounded-xl border-2 border-surface-700 bg-surface-800"
               />
             ) : (
               <CampusMap
