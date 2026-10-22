@@ -34,6 +34,25 @@ function tokenOf(logs: string[]): string {
   throw new Error(`the magic link was not printed: ${logs.join('\n')}`);
 }
 
+/** The origin the API answers on: `app.request` builds its URLs on it. */
+const API_ORIGIN = 'http://localhost';
+
+/**
+ * Runs `body` with `PUBLIC_URL` pointing at the web app (or unset) and puts
+ * the old value back afterwards.
+ */
+async function withPublicUrl<T>(value: string | undefined, body: () => T): Promise<T> {
+  const previous = process.env.PUBLIC_URL;
+  if (value === undefined) delete process.env.PUBLIC_URL;
+  else process.env.PUBLIC_URL = value;
+  try {
+    return await body();
+  } finally {
+    if (previous === undefined) delete process.env.PUBLIC_URL;
+    else process.env.PUBLIC_URL = previous;
+  }
+}
+
 describe('POST /auth/magic-link', () => {
   it('refuses a mailbox that is not institutional', async () => {
     const response = await call(app, '/auth/magic-link', 'POST', { email: 'someone@gmail.com' });
@@ -94,7 +113,7 @@ describe('POST /auth/magic-link', () => {
 });
 
 describe('GET /auth/magic-link/:token', () => {
-  it('creates the session and redirects to the app', async () => {
+  it('creates the session and redirects to the web app, not to the API', async () => {
     const logs: string[] = [];
     vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
       logs.push(String(line));
@@ -102,9 +121,17 @@ describe('GET /auth/magic-link/:token', () => {
     await call(app, '/auth/magic-link', 'POST', { email: 'l123456@morelia.tecnm.mx' });
     const token = tokenOf(logs);
 
-    const response = await app.request(`/auth/magic-link/${token}`);
+    const response = await withPublicUrl('https://web.example.test', () =>
+      app.request(`/auth/magic-link/${token}`),
+    );
     expect(response.status).toBe(302);
-    expect(response.headers.get('location')).toBe('/');
+
+    // La cookie vive en el origen del API, así que el estudiante vuelve a la
+    // web: el redirect es absoluto y sale del origen del API.
+    const location = response.headers.get('location') ?? '';
+    expect(location).toBe('https://web.example.test/');
+    expect(new URL(location).origin).toBe('https://web.example.test');
+    expect(new URL(location).origin).not.toBe(API_ORIGIN);
 
     const cookie = response.headers.get('set-cookie') ?? '';
     expect(cookie).toContain('op_session=');
@@ -113,6 +140,22 @@ describe('GET /auth/magic-link/:token', () => {
 
     const links = await fixture.db.select().from(magicLinks);
     expect(links[0]?.usedAt).not.toBeNull();
+  });
+
+  it('redirects to the default web origin when the environment does not name one', async () => {
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      logs.push(String(line));
+    });
+    await call(app, '/auth/magic-link', 'POST', { email: 'l123456@morelia.tecnm.mx' });
+    const token = tokenOf(logs);
+
+    const response = await withPublicUrl(undefined, () => app.request(`/auth/magic-link/${token}`));
+    expect(response.status).toBe(302);
+
+    const location = response.headers.get('location') ?? '';
+    expect(location).toBe('http://localhost:5173/');
+    expect(new URL(location).origin).not.toBe(API_ORIGIN);
   });
 
   it('refuses a token that was used already', async () => {
