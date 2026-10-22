@@ -24,6 +24,10 @@ import {
  * The raster carries the same transform as the layer, so the picture, the
  * zones and the pins zoom and pan as one thing.
  *
+ * The legend panel can light a zone from outside (`highlightZoneId`): the
+ * building and its name are painted, so a student reading the names knows
+ * which zone is which.
+ *
  * The layer is moved with a single CSS transform, so the hit testing of a
  * tap has to undo that transform before it can ask which zone is under the
  * finger.
@@ -56,6 +60,7 @@ export default function CampusMap({
   image,
   onSelectZone,
   onPick,
+  highlightZoneId = null,
   children,
   empty = false,
   offline = false,
@@ -512,6 +517,9 @@ export default function CampusMap({
               {zones.map((zone) => {
                 if (!zone?.box) return null;
                 const boxes = zoneBoxes(zone);
+                // La leyenda del croquis puede encender una zona: el edificio y
+                // su nombre se pintan para que se sepa cuál es.
+                const highlighted = zone.id === highlightZoneId;
                 return (
                   <button
                     key={zone.id}
@@ -542,7 +550,9 @@ export default function CampusMap({
                     }}
                   >
                     <span
-                      className="absolute rounded-sm border border-transparent transition-colors group-hover:border-brand-300/70 group-hover:bg-brand-400/20 group-focus:border-brand-300/70 group-focus:bg-brand-400/20"
+                      className={`absolute rounded-sm border transition-colors group-hover:border-brand-300/70 group-hover:bg-brand-400/20 group-focus:border-brand-300/70 group-focus:bg-brand-400/20 ${
+                        highlighted ? 'border-brand-300/90 bg-brand-400/30' : 'border-transparent'
+                      }`}
                       style={{
                         left: `${boxes.visualLeft}%`,
                         top: `${boxes.visualTop}%`,
@@ -551,7 +561,11 @@ export default function CampusMap({
                       }}
                     >
                       <span
-                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone)} whitespace-nowrap rounded-md bg-surface-900/95 px-1.5 py-0.5 text-[10px] font-semibold text-brand-200 opacity-0 shadow-lg ring-1 ring-surface-600/70 transition-opacity duration-150 group-hover:opacity-100 group-focus:opacity-100`}
+                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone)} whitespace-nowrap rounded-md bg-surface-900/95 px-1.5 py-0.5 text-[10px] font-semibold text-brand-200 shadow-lg ring-1 ring-surface-600/70 transition-opacity duration-150 ${
+                          highlighted
+                            ? 'opacity-100'
+                            : 'opacity-0 group-hover:opacity-100 group-focus:opacity-100'
+                        }`}
                       >
                         {zone.label}
                       </span>

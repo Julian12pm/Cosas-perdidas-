@@ -19,6 +19,7 @@ import Modal from './components/Modal.jsx';
 import MyReports from './components/MyReports.jsx';
 import OfflineBanner from './components/OfflineBanner.jsx';
 import ReportForm from './components/ReportForm.jsx';
+import ZoneLegend from './components/ZoneLegend.jsx';
 import ZonePicker from './components/ZonePicker.jsx';
 import { ErrorState, LoadingState } from './components/StateMessage.jsx';
 import {
@@ -582,6 +583,8 @@ export default function App() {
   const [view, setView] = useState('map');
   const [modal, setModal] = useState(null);
   const [pending, setPending] = useState(null);
+  // La zona que la leyenda está iluminando en el croquis.
+  const [highlightZoneId, setHighlightZoneId] = useState(null);
   const online = useOnline();
 
   /** El servidor ya no reconoce la sesión: se vuelve al acceso, avisando. */
@@ -960,45 +963,54 @@ export default function App() {
 
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center gap-4 p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] md:p-6 md:pb-6">
         {view === 'map' && (
-          <div className="flex w-full flex-col items-center gap-4">
-            <div className="w-full max-w-2xl">
-              <ZonePicker zones={ZONES} onSelect={handleSelectZone} state={screenState} />
+          <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start">
+            {/* El croquis y su buscador: la columna que el estudiante mira primero. */}
+            <div className="flex w-full min-w-0 flex-col items-center gap-4 lg:flex-1">
+              <div className="w-full max-w-2xl">
+                <ZonePicker zones={ZONES} onSelect={handleSelectZone} state={screenState} />
+              </div>
+
+              {screenState === 'error' ? (
+                <div className="w-full max-w-2xl">
+                  <ErrorState
+                    title="No pudimos cargar el campus"
+                    description="Revisa tu conexión e inténtalo de nuevo."
+                    onRetry={loadCampus}
+                  />
+                </div>
+              ) : screenState === 'loading' ? (
+                <div
+                  aria-hidden="true"
+                  className="aspect-[700/647] w-full max-w-2xl rounded-xl border-2 border-surface-700 bg-surface-800"
+                />
+              ) : (
+                <CampusMap
+                  zones={ZONES}
+                  image={MAP_IMAGE}
+                  onSelectZone={handleSelectZone}
+                  onPick={handlePick}
+                  highlightZoneId={highlightZoneId}
+                  empty={mapReports.length === 0}
+                  offline={!online}
+                >
+                  {mapReports.map((report) => (
+                    <MapPin key={report.id} report={report} onClick={handlePinClick} />
+                  ))}
+
+                  {pending && <PendingMarker point={pending} />}
+                </CampusMap>
+              )}
+
+              <p className="max-w-2xl text-center text-xs leading-relaxed text-text-muted">
+                Toca el croquis para marcar un objeto perdido o encontrado. Con el teclado: Tab
+                hasta el plano y usa las flechas para recorrer las zonas, Enter para elegir una.
+              </p>
             </div>
 
-            {screenState === 'error' ? (
-              <div className="w-full max-w-2xl">
-                <ErrorState
-                  title="No pudimos cargar el campus"
-                  description="Revisa tu conexión e inténtalo de nuevo."
-                  onRetry={loadCampus}
-                />
-              </div>
-            ) : screenState === 'loading' ? (
-              <div
-                aria-hidden="true"
-                className="aspect-[700/647] w-full max-w-2xl rounded-xl border-2 border-surface-700 bg-surface-800"
-              />
-            ) : (
-              <CampusMap
-                zones={ZONES}
-                image={MAP_IMAGE}
-                onSelectZone={handleSelectZone}
-                onPick={handlePick}
-                empty={mapReports.length === 0}
-                offline={!online}
-              >
-                {mapReports.map((report) => (
-                  <MapPin key={report.id} report={report} onClick={handlePinClick} />
-                ))}
-
-                {pending && <PendingMarker point={pending} />}
-              </CampusMap>
-            )}
-
-            <p className="max-w-2xl text-center text-xs leading-relaxed text-text-muted">
-              Toca el croquis para marcar un objeto perdido o encontrado. Con el teclado: Tab hasta
-              el plano y usa las flechas para recorrer las zonas, Enter para elegir una.
-            </p>
+            {/* Los nombres del campus: la tabla que el plano oficial ya no trae. */}
+            <div className="w-full lg:w-96 lg:shrink-0">
+              <ZoneLegend zones={ZONES} onSelect={handleSelectZone} onHover={setHighlightZoneId} />
+            </div>
           </div>
         )}
 
