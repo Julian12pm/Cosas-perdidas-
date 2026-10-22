@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { EmptyState, ErrorState, LoadingState } from './StateMessage.jsx';
 import {
   clampTransform,
   fitContain,
@@ -43,7 +44,15 @@ const INITIAL_TRANSFORM = { scale: 1, x: 0, y: 0 };
 /** The id an option carries, the one `aria-activedescendant` points at. */
 const optionId = (zone) => `map-zone-${zone.id}`;
 
-export default function CampusMap({ zones = [], image, onSelectZone, onPick, children }) {
+export default function CampusMap({
+  zones = [],
+  image,
+  onSelectZone,
+  onPick,
+  children,
+  empty = false,
+  offline = false,
+}) {
   const wrapperRef = useRef(null);
   const imgRef = useRef(null);
   const zoneRefs = useRef(new Map());
@@ -56,6 +65,9 @@ export default function CampusMap({ zones = [], image, onSelectZone, onPick, chi
   const [transform, setTransform] = useState(INITIAL_TRANSFORM);
   const [activeId, setActiveId] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
+  // El croquis es un archivo: se descarga, se dibuja y a veces no llega.
+  const [raster, setRaster] = useState('loading');
+  const [attempt, setAttempt] = useState(0);
 
   /** Replaces the transform and keeps the ref in sync with the state. */
   const applyTransform = useCallback((compute) => {
@@ -112,6 +124,8 @@ export default function CampusMap({ zones = [], image, onSelectZone, onPick, chi
           ? previous
           : painted,
       );
+      // Un croquis que ya estaba en la caché no vuelve a disparar su carga.
+      if (img.complete && img.naturalWidth > 0) setRaster('ready');
     };
 
     measure();
@@ -122,7 +136,17 @@ export default function CampusMap({ zones = [], image, onSelectZone, onPick, chi
       observer.disconnect();
       img.removeEventListener('load', measure);
     };
-  }, []);
+  }, [attempt]);
+
+  // Los oyentes del gesto viven en la ventana: si el croquis se desmonta a
+  // media pulsación, se sueltan aquí o quedan llamando a un componente muerto.
+  useEffect(
+    () => () => {
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+    },
+    [],
+  );
 
   // The wheel zooms toward the cursor, so it needs a listener that can stop
   // the page from scrolling under the map.
@@ -229,7 +253,9 @@ export default function CampusMap({ zones = [], image, onSelectZone, onPick, chi
           gesture.last = { x: gesture.start.x, y: gesture.start.y };
         }
         const dx = event.clientX - gesture.last.x;
-        const dy = event.clientY - gesture.last.y;
+        // Con `touch-pan-y` el navegador se queda con el eje vertical: el
+        // croquis sólo se desliza de lado para no pelear el mismo gesto.
+        const dy = event.pointerType === 'touch' ? 0 : event.clientY - gesture.last.y;
         gesture.last = { x: event.clientX, y: event.clientY };
         applyTransform((current) => panBy(current, dx, dy, gesture.geometry.limits));
         return;
@@ -319,6 +345,16 @@ export default function CampusMap({ zones = [], image, onSelectZone, onPick, chi
     () => ordered.find((zone) => zone.id === activeId) ?? ordered[0] ?? null,
     [activeId, ordered],
   );
+
+  /**
+   * The pin is measured against the artwork that holds it: 32px over a croquis
+   * half a metre tall is a mark, but over the croquis of a phone it swallows
+   * the building it points at.
+   */
+  const pinScale = useMemo(() => {
+    if (!fit) return 1;
+    return Math.min(1, Math.max(0.7, fit.height / 500));
+  }, [fit]);
 
   const onKeyDown = useCallback(
     (event) => {
@@ -410,21 +446,26 @@ export default function CampusMap({ zones = [], image, onSelectZone, onPick, chi
   return (
     <div
       ref={wrapperRef}
+      data-testid="map"
       onPointerDown={onPointerDown}
-      className="relative inline-block max-w-full touch-none select-none overflow-hidden rounded-xl border-2 border-surface-700 bg-surface-800 shadow-2xl"
+      className="relative inline-block w-full max-w-2xl touch-pan-y select-none overflow-hidden rounded-xl border-2 border-surface-700 bg-surface-800 shadow-2xl overscroll-contain"
     >
       <div className="relative">
         <img
+          key={attempt}
           ref={imgRef}
+          data-testid="map-raster"
           src={image?.src ?? '/mapa-itm.png'}
           alt="Plano General del Campus ITM"
           draggable={false}
-          className="block h-auto max-h-[80vh] w-full object-contain"
+          onLoad={() => setRaster('ready')}
+          onError={() => setRaster('error')}
+          className="block h-auto max-h-[60vh] w-full object-contain sm:max-h-[80vh]"
         />
 
         {fit && (
           <div
-            className="absolute pointer-events-none"
+            className="absolute pointer-events-none touch-none"
             style={{
               left: fit.x,
               top: fit.y,
@@ -432,6 +473,7 @@ export default function CampusMap({ zones = [], image, onSelectZone, onPick, chi
               height: fit.height,
               transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
               transformOrigin: '0 0',
+              '--pin-scale': pinScale,
             }}
           >
             <div
@@ -454,6 +496,7 @@ export default function CampusMap({ zones = [], image, onSelectZone, onPick, chi
                     aria-selected={selectedId === zone.id}
                     tabIndex={activeZone?.id === zone.id ? 0 : -1}
                     data-zone-id={zone.id}
+                    data-testid={`zone-${zone.id}`}
                     onFocus={() => setActiveId(zone.id)}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -493,6 +536,40 @@ export default function CampusMap({ zones = [], image, onSelectZone, onPick, chi
             </div>
 
             {children}
+          </div>
+        )}
+
+        {raster === 'loading' && (
+          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-4">
+            <LoadingState
+              compact
+              title="Cargando el croquis…"
+              description="El plano del campus se está descargando."
+            />
+          </div>
+        )}
+
+        {raster === 'error' && !offline && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center p-4">
+            <ErrorState
+              compact
+              title="No se pudo cargar el croquis"
+              description="La imagen del plano no llegó. Revisa tu conexión e inténtalo de nuevo."
+              onRetry={() => {
+                setRaster('loading');
+                setAttempt((value) => value + 1);
+              }}
+            />
+          </div>
+        )}
+
+        {raster === 'ready' && empty && (
+          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-4">
+            <EmptyState
+              compact
+              title="Nadie ha reportado nada todavía"
+              description="Toca el croquis para marcar un objeto perdido o encontrado: el pin rojo es lo que perdiste, el verde lo que encontraste."
+            />
           </div>
         )}
       </div>
