@@ -1,11 +1,11 @@
 # Superficies y movimiento — un solo sistema para toda la app
 
 **Objective:** collapse the interface's improvised surfaces into ONE declared recipe and give the motion layer a scale, so the app reads as one product instead of five ideas — and so nothing on the screen depends on a hover a phone can never produce.
-**Branch:** `feature/objetos-perdidas-itm` (SAME BRANCH — the user asked for the next step to be recorded here; this phase is PLANNED, not built).
-**Delivery strategy:** one branch, one PR, reviewed per work-unit commit. Forecast ≈ 350 authored changed lines over 6 work units.
-**Test runner:** `vp test` (356 unit/integration tests) · `vp exec node scripts/smoke-journey.mjs` (the demo journey, 356 browser assertions) · `vp exec node scripts/smoke-api.mjs` (the full-stack journey, 26 assertions) · `vp check` (format + lint + types).
+**Branch:** `feature/objetos-perdidas-itm` (SAME BRANCH).
+**Delivery strategy:** one branch, one PR, reviewed per work-unit commit (the strategy locked in the plan). Six work units, five commits; the PR is the user's call.
+**Test runner:** `vp test` (366 unit/integration tests) · `vp exec node scripts/smoke-journey.mjs` (the demo journey, 366 browser assertions) · `vp exec node scripts/smoke-api.mjs` (the full-stack journey, 26 assertions) · `vp check` (format + lint + types).
 
-**Status: PLANNED. Nothing in this phase has been built yet.**
+**Status: BUILT.** The recipe, the roles, the motion scale, the modal's exit, the bounded loops, the animated changes and the hover-free affordances are in the app, and `src/design-system.test.js` is the gate that keeps them there.
 
 ---
 
@@ -130,24 +130,30 @@ Checks: the review of `src/index.css`.
 
 ## Tasks
 
-| ID  | Specs      | Work                                                                                                                                                                                       | Route  | Status  | Verification                                              |
-| --- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ------- | --------------------------------------------------------- |
-| T1  | S1, S2     | Declare the surface tokens in `src/index.css` (`--radius-*`, `--color-panel*`, `--shadow-panel`) and the three roles.                                                                      | inline | planned | the token grep + the visual review                        |
-| T2  | S1, S3, S4 | Apply the recipe to every surface: the map frame, the legend panel, the report card, the claim row, the state panels, the picker dropdown, the modal, the cluster entries, the login card. | inline | planned | the visual review of both journeys' screenshots           |
-| T3  | S5         | Publish the motion scale and move every literal duration/easing to it; replace `transition-all` with explicit properties.                                                                  | inline | planned | the duration grep                                         |
-| T4  | S6, S7, S8 | The modal's exit, the bounded loops, the cross-fade on the view switch, the animated collapse and dropdown.                                                                                | inline | planned | the journey's screenshots (including with reduced motion) |
-| T5  | S9         | The hover-only affordances answer to press/tap/focus; the legend's copy stops promising a cursor.                                                                                          | inline | planned | the journey asserts the zone name after a TAP             |
-| T6  | S10        | The cross-cutting rules documented; the whole visual review, screenshot by screenshot.                                                                                                     | inline | planned | the full review                                           |
+| ID  | Specs      | Work                                                                                                                                                                                       | Route  | Status | Commit / evidence                                                                                                             |
+| --- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ | ------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| T1  | S1, S2     | Declare the surface tokens in `src/index.css` (`--radius-*`, `--color-panel*`, `--shadow-panel`) and the three roles.                                                                      | inline | done   | `d90141f` — the tokens, the four role classes and the gate that watches them                                                  |
+| T2  | S1, S3, S4 | Apply the recipe to every surface: the map frame, the legend panel, the report card, the claim row, the state panels, the picker dropdown, the modal, the cluster entries, the login card. | inline | done   | `d90141f` — the visual review of both journeys' screenshots (the map frame, the two sibling views, the login card, the modal) |
+| T3  | S5         | Publish the motion scale and move every literal duration/easing to it; replace `transition-all` with explicit properties.                                                                  | inline | done   | `c5fa5d5` — the duration grep (the gate fails on a literal duration, on a transition without one and on `transition-all`)     |
+| T4  | S6, S7, S8 | The modal's exit, the bounded loops, the cross-fade on the view switch, the animated collapse and dropdown.                                                                                | inline | done   | `8ea5f97` — the journey holds the exit long enough to see it and emulates `prefers-reduced-motion`                            |
+| T5  | S9         | The hover-only affordances answer to press/tap/focus; the legend's copy stops promising a cursor.                                                                                          | inline | done   | `1423dcf` — the journey asserts the croquis says the name of the zone that was tapped                                         |
+| T6  | S10        | The cross-cutting rules documented; the whole visual review, screenshot by screenshot.                                                                                                     | inline | done   | this commit — the review of `src/index.css` and the README's new section                                                      |
 
 ### Risks
 
 | Task | Risk                                                                                                           | Mitigation                                                                            |
 | ---- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| T2   | Touching every surface is a wide diff and can break the journey's selectors                                    | the journey's 356 assertions are the gate; the `data-testid` contract does not change |
+| T2   | Touching every surface is a wide diff and can break the journey's selectors                                    | the journey's 366 assertions are the gate; the `data-testid` contract does not change |
 | T2   | The accent recipe (the contact card, the release key) is a FOURTH role and could drift back into improvisation | the role is declared and its two usages are pinned by the review                      |
 | T4   | An exit animation means the modal stays mounted briefly → the focus restore must happen at the right moment    | the restore stays on unmount; the journey's keyboard assertions cover it              |
 | T4   | `prefers-reduced-motion` must neutralise the new exit too                                                      | the reduced-motion block stays global and is re-verified                              |
 | T5   | A press state on touch can stick after the tap                                                                 | the press state is time-boxed or released on `pointerup` outside                      |
+
+**Risks that actually fired.** The exit did need the parents to keep the modal mounted (the App
+unmounted it in the same frame), so the modals take an `open` prop and the App holds the modal for
+240 ms while it plays out; the focus restore moved to the unmount. `vp check` did NOT catch a
+missing `useState` import in a `.jsx` file: the journey caught it (a page error), and the fix was in
+the same work unit.
 
 ---
 
@@ -160,3 +166,51 @@ Checks: the review of `src/index.css`.
 **L2 — 2026-10-23 — Context.** The previous phase closed the croquis (T1–T6) and the screen-space relief. The UI audit then scored the app 2/5 on the 3D, 2/5 on touch, 3/5 on motion and 3/5 on cards; the first two were fixed, and this phase takes the last two. Nothing of this phase has been built: it is the recorded NEXT STEP.
 
 **L3 — 2026-10-23 — What the audit found, in its own words.** One recipe with three elevations; the map frame breaking the family; "Mis reportes" and "Bandeja" disagreeing on radius, fill and shadow; six fills for the "raised row" role and five border opacities; the report card's internal hierarchy inverted (the container is quieter than the panels inside it); text at 10 px and 11 px; a modal with an entrance and no exit; five durations with no rule behind them; five infinite loops; one dead keyframe; three hover-only transitions.
+
+**L4 — 2026-10-23 — The recipe is declared once and the components name their role.** The tokens live in
+`@theme` (`--radius-panel/row/inset`, `--color-panel*`, `--color-accent*`, `--shadow-panel`) and the
+four roles are four classes in `@layer components` (`surface-panel`, `surface-row`, `surface-inset`,
+`surface-accent`). A component no longer declares a border, a fill, a shadow or a radius: it says
+what it is. `src/design-system.test.js` is the gate — it fails if a component declares its own
+elevation, its own panel fill or its own surface border, if a token goes missing, if a transition
+has no duration from the scale or if anyone writes `transition-all` again.
+
+**L5 — 2026-10-23 — Three deviations from the plan, and why.**
+
+1. **The claim card is a panel, not a row.** S2 listed the claim row under "row", but S4 demands that
+   "Mis reportes" and "Bandeja" look like the same kind of thing: the report card and the claim card
+   are the same panel. The more specific acceptance wins; the "row" role lives on the raised pieces
+   inside a panel (the cluster entries, the "se marcará en" block, the safe-point block).
+2. **The view switch fades the new view in; it does not cross-fade.** A true cross-fade needs both
+   views mounted at once, and that would mount the croquis twice (the relief is the expensive part).
+   The new view fades in over 200 ms and the old one unmounts at once.
+3. **The exit needed the parents to keep the modal mounted.** The App unmounted each dialog in the
+   same frame it asked it to close, so the exit could never play. The modals now take an `open` prop
+   and the App holds the modal for 240 ms while it leaves; the focus comes back when the dialog is
+   really gone.
+
+**L6 — 2026-10-23 — The motion scale, and the pin's dead hover.** Four durations (fast 150, base 200,
+slow 300, entrance 500) and two curves, and every transition names the property it animates. The pin's
+hover shadow was never seen: the pulse animation owns `box-shadow`, so `transition-all` and
+`group-hover:shadow-xl` were fighting over a property they could not have. The hover scale is gone
+and the pin only scales.
+
+**L7 — 2026-10-23 — The infinite loops are down to the two that mean something.** The header's two
+counting dots pulse on every screen forever and say nothing: they are static now. The pin's pulse
+stays (it is the signal that the pin is alive) and the pending marker's ping stays (it says where
+the object is going to be marked). The dead `success-pop` keyframe is gone.
+
+**L8 — 2026-10-23 — Nothing depends on a cursor.** The zone that was tapped says its name on the
+croquis and lights up; the pin's name answers to the keyboard focus and to the pressure of the
+finger; the legend lights the zone with a tap too, and its copy no longer promises a cursor. The
+journey taps a roof and asserts the name appears.
+
+**L9 — 2026-10-23 — The evidence.** `vp test`: 366 pass (10 of them the new gate). `vp check`: clean.
+The demo journey: 366/366 assertions, 0 console errors, 0 findings — including the new exit check
+(the journey holds the exit long enough to see it) and the reduced-motion check (the dialog still
+opens and closes with `prefers-reduced-motion: reduce`). The full-stack journey: 26/26 assertions
+against a real Postgres 16, 0 console errors (the four 401s are its own session probes).
+
+**L10 — 2026-10-23 — What is still open.** The contact card reveals the contact on `mouseenter`: on
+a phone a tap on the card reveals it without pressing "Ver el contacto". It does not _depend_ on a
+hover (the button works), so it was left alone — but it is the next thing to look at.

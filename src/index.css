@@ -218,8 +218,11 @@
 }
 
 /**
- * El dedo no deja un halo azul en los controles: en un mapa que se arrastra
- * con el dedo, el halo del navegador delata el toque y ensucia el relieve.
+ * REGLA CRUZADA — el dedo no deja un halo azul en los controles.
+ *
+ * En un mapa que se arrastra con el dedo, el halo del navegador delata el
+ * toque y ensucia el relieve. No es una regla de un componente: es de toda la
+ * app, y por eso vive aquí y no en cada botón.
  */
 button,
 a,
@@ -228,10 +231,11 @@ a,
 }
 
 /**
- * Ningún texto del producto se pinta por debajo de 12 px. Las dos
- * utilidades que lo hacían (`text-[10px]` y `text-[11px]`) suben a 12 px:
- * están en componentes que no son de esta unidad de trabajo, así que el
- * piso se aplica desde aquí.
+ * REGLA CRUZADA — ningún texto del producto se pinta por debajo de 12 px.
+ *
+ * El suelo lo pone el producto, no cada componente: las dos utilidades que lo
+ * violaban (`text-[10px]` y `text-[11px]`) suben a 12 px desde aquí. Es un
+ * piso, no un parche: protege también a las piezas que vengan mañana.
  */
 .text-\[10px\],
 .text-\[11px\] {
