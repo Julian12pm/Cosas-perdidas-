@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MagnifierIcon } from '@solar-icons/react/bold/magnifier';
 import { EmptyState, LoadingState } from './StateMessage.jsx';
-import { searchZones } from '../map/geometry.js';
+import { searchZones } from '../map/geometry.ts';
 
 /*
  * The picker is the keyboard path to the zones: the overlay buttons are not

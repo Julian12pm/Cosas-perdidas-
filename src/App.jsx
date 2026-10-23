@@ -46,8 +46,8 @@ import {
   reporterAlias,
   reportFromApi,
 } from './data.js';
-import { artworkToPercent, polygonCentroid, zoneAtPoint } from './map/geometry.js';
-import { MAP_IMAGE, ZONES } from './map/zones.js';
+import { artworkToPercent, polygonCentroid, zoneAtPoint } from './map/geometry.ts';
+import { MAP_IMAGE, ZONES } from './map/zones.ts';
 
 /*
  * Objetos Perdidos ITM: el croquis, los reportes y el protocolo de entrega.

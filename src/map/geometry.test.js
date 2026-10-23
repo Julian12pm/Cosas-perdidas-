@@ -26,7 +26,7 @@ import {
   zoneShapes,
   zoneToPercent,
   zoomAt,
-} from './geometry.js';
+} from './geometry.ts';
 
 const ARTWORK = { width: 846, height: 647 };
 

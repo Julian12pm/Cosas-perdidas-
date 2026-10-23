@@ -37,8 +37,8 @@ import {
   polygonCentroid,
   polygonPath,
   zoneAtPoint,
-} from '../src/map/geometry.js';
-import { MAP_IMAGE, ZONE_BY_ID, ZONES } from '../src/map/zones.js';
+} from '../src/map/geometry.ts';
+import { MAP_IMAGE, ZONE_BY_ID, ZONES } from '../src/map/zones.ts';
 
 /* ─────────────────────────── Configuración ─────────────────────────── */
 

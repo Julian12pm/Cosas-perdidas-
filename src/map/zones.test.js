@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { polygonArea } from './geometry.js';
-import { MAP_IMAGE, UNCERTAIN_CODES, ZONE_BY_ID, ZONES } from './zones.js';
+import { polygonArea } from './geometry.ts';
+import { MAP_IMAGE, UNCERTAIN_CODES, ZONE_BY_ID, ZONES } from './zones.ts';
 
 const KINDS = new Set(['building', 'parking', 'meeting_point', 'internet_module', 'track']);
 const UNITS = new Set(['metal-mecanica', 'central', 'posgrado', 'campus']);
