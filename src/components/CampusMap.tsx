@@ -118,24 +118,26 @@ const GROUND: Record<SceneLayer, string> = {
  * volume stops reading as a volume.
  */
 
-/** The width of the plate that carries a key, in artwork units. */
-function codePlateWidth(code: string, size: number): number {
-  return code.length * size * 0.6 + size * 0.36;
-}
-
 /**
- * Whether the key needs a plate behind it.
+ * Where the key of a building is printed, and on what surface.
  *
- * The key is printed on the centre of the base, which the roof covers unless
- * the building has a notch: then the key falls on the base, which is almost
- * black, and a dark letter on it cannot be read.
+ * The key wants to be on the ROOF: that is the face the student sees, and
+ * the key takes the roof's dark tone there. The roof is the base displaced
+ * towards the light, so its centre is the natural place — but in the shapes
+ * with a notch that centre falls outside the building, and then the key
+ * falls back to the centre of the base, over the dark strip that shows
+ * under the roof, and takes the light tone.
  */
-function keyNeedsPlate(volume: Volume): boolean {
-  if (!volume.label) return false;
-  return !pointInPolygon(
-    { x: volume.label.x + volume.slide, y: volume.label.y + volume.slide },
-    volume.shape,
-  );
+function placeKey(
+  shape: Polygon,
+  centre: Point | null,
+  slide: number,
+): { x: number; y: number; onRoof: boolean } {
+  if (!centre) return { x: 0, y: 0, onRoof: true };
+  const roof = { x: centre.x - slide, y: centre.y - slide };
+  const anchor = pointInPolygon(roof, shape) ? roof : centre;
+  const onRoof = pointInPolygon({ x: anchor.x + slide, y: anchor.y + slide }, shape);
+  return { x: anchor.x, y: anchor.y, onRoof };
 }
 
 /**
@@ -194,6 +196,8 @@ interface Volume {
   roof: Point | null;
   /** El centro de la base: donde se imprime la clave, que siempre es dentro. */
   label: Point | null;
+  /** Dónde se imprime la clave y sobre qué superficie. */
+  keySpot: { x: number; y: number; onRoof: boolean };
   /** Cuanto se desliza el tejado hacia la luz, en unidades del artwork. */
   slide: number;
   codeSize: number;
@@ -570,7 +574,9 @@ export default function CampusMap({
         // deja dentro de su propia huella.
         const roofCenter = polygonCentroid(volume.top);
         const baseCenter = polygonCentroid(shape);
-        const codePx = codeSizePx(shape, scale);
+        const codePx = codeSizePx(shape, scale, zone.code);
+        const slide = height / (scale > 0 ? scale : 1);
+        const centre = baseCenter ? { x: baseCenter.x, y: baseCenter.y } : null;
         volumes.push({
           key: `${zone.id}-${index}`,
           zone,
@@ -582,8 +588,9 @@ export default function CampusMap({
           // tejado: el tejado esta desplazado hacia la luz y su centro cae
           // fuera de la construccion (en las formas con hueco, incluso del
           // todo). El centro de la base esta dentro siempre.
-          label: baseCenter ? { x: baseCenter.x, y: baseCenter.y } : null,
-          slide: height / (scale > 0 ? scale : 1),
+          label: centre,
+          slide,
+          keySpot: placeKey(shape, centre, slide),
           codeSize: codePx > 0 ? codePx / (scale > 0 ? scale : 1) : 0,
         });
       });
@@ -784,35 +791,26 @@ export default function CampusMap({
                   />
                   {volume.main && volume.label && volume.zone.code && volume.codeSize > 0 && (
                     <g data-shape="code">
-                      {/* La clave se lee sobre el tejado, que es claro, con su
-                          color oscuro. Cuando el tejado no tapa el centro de
-                          la base (las formas con hueco) la clave cae sobre la
-                          base, que es casi negra, y necesita una chapa. */}
-                      {keyNeedsPlate(volume) && (
-                        <rect
-                          x={volume.label.x - codePlateWidth(volume.zone.code, volume.codeSize) / 2}
-                          y={volume.label.y - volume.codeSize * 0.58}
-                          width={codePlateWidth(volume.zone.code, volume.codeSize)}
-                          height={volume.codeSize * 1.16}
-                          rx={volume.codeSize * 0.22}
-                          fill={safe ? TONES.safeCode : TONES.code}
-                        />
-                      )}
+                      {/* La clave se lee sobre la superficie en la que cae:
+                          el tejado, que es claro, o la franja de la base que
+                          asoma debajo, que es oscura. El color sigue a la
+                          superficie, así que la clave no necesita una chapa
+                          detrás. */}
                       <text
-                        x={volume.label.x}
-                        y={volume.label.y}
+                        x={volume.keySpot.x}
+                        y={volume.keySpot.y}
                         textAnchor="middle"
                         dominantBaseline="central"
                         fontSize={volume.codeSize}
                         fontWeight="600"
                         fill={
-                          keyNeedsPlate(volume)
+                          volume.keySpot.onRoof
                             ? safe
-                              ? TONES.safeRoof
-                              : TONES.roof
-                            : safe
                               ? TONES.safeCode
                               : TONES.code
+                            : safe
+                              ? TONES.safeRoof
+                              : TONES.roof
                         }
                       >
                         {volume.zone.code}

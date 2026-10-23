@@ -3,10 +3,10 @@ import {
   artworkToPercent,
   clampTransform,
   clientToArtwork,
+  codeSizePx,
   DEFAULT_HEIGHT,
   extrudePolygon,
   fitContain,
-  HEIGHT_TABLE,
   heightCategory,
   heightFor,
   invertTransform,
@@ -20,6 +20,8 @@ import {
   polygonCentroid,
   polygonPath,
   scaleForPoint,
+  WALL_TO_SIZE,
+  wallHeightPx,
   searchZones,
   zoneAtPoint,
   zoneReadingOrder,
@@ -845,7 +847,7 @@ describe('heightCategory', () => {
 
 describe('heightFor', () => {
   it('gives a low volume to the classrooms', () => {
-    expect(heightFor({ name: 'Aula' })).toBe(8);
+    expect(heightFor({ name: 'Aula' })).toBe(7);
   });
 
   it('gives a medium volume to the laboratories and the workshops', () => {
@@ -853,7 +855,7 @@ describe('heightFor', () => {
   });
 
   it('gives a tall volume to the gymnasium and the library', () => {
-    expect(heightFor({ name: 'Centro de Información (Biblioteca)' })).toBe(16);
+    expect(heightFor({ name: 'Centro de Información (Biblioteca)' })).toBe(15);
   });
 
   it('gives the default volume to a name the legend does not describe', () => {
@@ -867,14 +869,68 @@ describe('heightFor', () => {
     );
     expect(
       heightFor(zoneOf({ id: 'af', code: 'AF', name: 'Centro de Información (Biblioteca)' })),
-    ).toBe(16);
+    ).toBe(15);
+  });
+});
+
+describe('codeSizePx', () => {
+  const NARROW: Polygon = [
+    [0, 0],
+    [20, 0],
+    [20, 40],
+    [0, 40],
+  ];
+
+  it('shrinks the key so it fits the building it names', () => {
+    // Una clave de cuatro caracteres sobre un edificio de veinte unidades:
+    // si no se encoge, se sale por el otro lado.
+    const size = codeSizePx(NARROW, 1, 'ABCD');
+    expect(size).toBeGreaterThan(0);
+    expect(size * 4 * 0.6).toBeLessThanOrEqual(20);
   });
 
-  it('keeps every height above the floor that makes a volume readable', () => {
-    // El piso es lo que hace que el edificio más pequeño del campus se lea
-    // como un volumen en un teléfono: sin él, el relieve se aplana.
-    expect(MIN_WALL_PX).toBe(7);
-    expect(Math.min(...Object.values(HEIGHT_TABLE))).toBeGreaterThanOrEqual(MIN_WALL_PX);
+  it('does not draw a key that cannot be read', () => {
+    const tiny: Polygon = [
+      [0, 0],
+      [4, 0],
+      [4, 4],
+      [0, 4],
+    ];
+    expect(codeSizePx(tiny, 1, 'A')).toBe(0);
+  });
+});
+
+describe('wallHeightPx', () => {
+  const BIG: Polygon = [
+    [0, 0],
+    [40, 0],
+    [40, 40],
+    [0, 40],
+  ];
+  const SMALL: Polygon = [
+    [0, 0],
+    [10, 0],
+    [10, 10],
+    [0, 10],
+  ];
+
+  it('grows with the zoom, because the height belongs to the building', () => {
+    const atOne = wallHeightPx({ name: 'Aula' }, BIG, 1);
+    const atSix = wallHeightPx({ name: 'Aula' }, BIG, 6);
+    expect(atSix).toBeGreaterThan(atOne);
+  });
+
+  it('keeps a visible wall on a phone, where a plan unit is half a pixel', () => {
+    // El campus son 700 unidades y en un teléfono son 358 píxeles: media
+    // unidad por píxel. Sin el piso, el relieve se aplana.
+    expect(wallHeightPx({ name: 'Aula' }, BIG, 0.51)).toBeGreaterThanOrEqual(MIN_WALL_PX);
+  });
+
+  it('never lets the roof leave the building it stands on', () => {
+    const wall = wallHeightPx({ name: 'Centro de Información (Biblioteca)' }, SMALL, 4);
+    // El tejado se desplaza la altura de la pared hacia la luz: no puede
+    // pasar del lado del propio edificio.
+    expect(wall).toBeLessThanOrEqual(10 * 4 * WALL_TO_SIZE);
   });
 });
 

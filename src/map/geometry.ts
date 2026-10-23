@@ -672,17 +672,17 @@ export const LIGHT: Light = { x: -Math.SQRT1_2, y: -Math.SQRT1_2 };
  * Las alturas del relieve, en PÍXELES DE PANTALLA: la pared que se ve, no
  * una distancia del plano. El artwork se dibuja en 700 x 647 unidades que en
  * un teléfono son media píxel cada una, así que una altura medida en unidades
- * del plano se aplana: 4 unidades son 2 px de pared, que no leen como
- * volumen. Medida en píxeles, la pared es la misma en el teléfono, en la
- * pantalla grande y con el croquis ampliado.
+ * del plano se aplana: por eso el piso de la pared está en PÍXELES DE
+ * PANTALLA y el techo de la pared también.
  *
  * La tabla vive aquí y en ningún otro lado.
  */
-export const HEIGHT_TABLE: Record<HeightFamily, number> = { low: 8, medium: 10, tall: 16 };
+export const HEIGHT_TABLE: Record<HeightFamily, number> = { low: 7, medium: 10, tall: 15 };
 
 /**
- * El piso de la pared: por debajo de esto el edificio más pequeño del campus
- * deja de leerse como un volumen y vuelve a ser una mancha del plano.
+ * El piso de la pared, en píxeles de pantalla: por debajo de esto el
+ * edificio más pequeño del campus deja de leerse como un volumen y vuelve
+ * a ser una mancha del plano.
  */
 export const MIN_WALL_PX = 7;
 
@@ -734,7 +734,7 @@ export function heightCategory(zone: NamedZone | null | undefined): HeightFamily
 }
 
 /**
- * La altura de una zona, en píxeles de pantalla; una función pura del
+ * La altura de una zona, en unidades del plano; una función pura del
  * nombre que la leyenda del plano le dio.
  */
 export function heightFor(zone: NamedZone | null | undefined): number {
@@ -766,8 +766,14 @@ export const MIN_CODE_PX = 7;
 export const CODE_PX = 13;
 
 /**
- * The wall of a building, in SCREEN pixels: the height of its family, capped
- * by the size of its own footprint.
+ * La pared de un edificio, en PÍXELES DE PANTALLA.
+ *
+ * La altura del edificio es una propiedad suya —la que su uso declara— y
+ * por eso se mide en unidades del plano y CRECE con el zoom, como crece un
+ * edificio al que uno se acerca. El piso de siete píxeles es lo que la
+ * mantiene visible en un teléfono a 1×, donde una unidad del plano es media
+ * píxel; y el tope es el propio edificio: una pared más alta que su
+ * huella empuja el tejado fuera de su base y el volumen deja de leerse.
  */
 export function wallHeightPx(
   zone: NamedZone | null | undefined,
@@ -776,20 +782,32 @@ export function wallHeightPx(
 ): number {
   const family = heightFor(zone);
   const bounds = polygonBounds(shape);
-  if (!bounds) return family;
-  const smallest = Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * scale;
-  return Math.min(family, smallest * WALL_TO_SIZE);
+  if (!bounds) return Math.max(family * scale, MIN_WALL_PX);
+
+  const smallest = Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+  const wall = Math.max(family * scale, MIN_WALL_PX);
+  return Math.min(wall, smallest * scale * WALL_TO_SIZE);
 }
 
 /**
  * The size of the key printed on a roof, in SCREEN pixels: it fits its
  * building, and it is zero when it would be too small to be read.
+ *
+ * The key is measured against the building's own narrowest side: a key
+ * WIDER than the building it names is a label floating over the neighbour.
  */
-export function codeSizePx(shape: Polygon, scale: number): number {
+export function codeSizePx(shape: Polygon, scale: number, code?: string | null): number {
   const bounds = polygonBounds(shape);
   if (!bounds) return 0;
   const smallest = Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * scale;
-  const size = Math.min(CODE_PX, smallest * CODE_TO_SIZE);
+  let size = Math.min(CODE_PX, smallest * CODE_TO_SIZE);
+  // The width of the key, measured in the font of the app: the average
+  // character of a sans-serif is about six tenths of its size.
+  const characters = String(code ?? '').length;
+  if (characters > 0) {
+    const width = characters * size * 0.6;
+    if (width > smallest) size = smallest / (characters * 0.6);
+  }
   return size >= MIN_CODE_PX ? size : 0;
 }
 
