@@ -27,8 +27,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PNG } from 'pngjs';
 import {
   LIGHT,
-  MIN_WALL_PX,
   artworkToPercent,
+  codeSizePx,
   extrudePolygon,
   heightFor,
   pointInPolygon,
@@ -36,6 +36,7 @@ import {
   polygonBounds,
   polygonCentroid,
   polygonPath,
+  wallHeightPx,
   zoneAtPoint,
 } from '../src/map/geometry.ts';
 import { MAP_IMAGE, ZONE_BY_ID, ZONES } from '../src/map/zones.ts';
@@ -517,7 +518,7 @@ function roofCenter(zone: Zone, scale: number): Spot | null {
     (best, candidate) => (polygonArea(candidate) > polygonArea(best) ? candidate : best),
     shapes[0],
   );
-  const roof = extrudePolygon(shape, heightFor(zone), scale, LIGHT).top;
+  const roof = extrudePolygon(shape, wallHeightPx(zone, shape, scale), scale, LIGHT).top;
   return polygonCentroid(roof);
 }
 
@@ -977,7 +978,12 @@ async function runJourney(
     const scaleAtOne = await paintedScale(page);
     const sample = ZONE_BY_ID.get('bldg-2k');
     if (!sample) throw new Error('el catálogo no tiene la zona bldg-2k');
-    const volume = extrudePolygon(sample.polygon ?? [], heightFor(sample), scaleAtOne, LIGHT);
+    const volume = extrudePolygon(
+      sample.polygon ?? [],
+      wallHeightPx(sample, sample.polygon ?? [], scaleAtOne),
+      scaleAtOne,
+      LIGHT,
+    );
     const expectedVolumes = ZONES.filter((zone) => zone.kind === 'building').reduce(
       (total, zone) => total + (zone.fragments?.length ?? 1),
       0,
@@ -990,6 +996,19 @@ async function runJourney(
         scene?.shadow?.[0] === polygonPath(volume.shadow),
       'la cara, la primera pared y la sombra de 2K con la geometría del catálogo',
       `cara=${scene?.top?.[0]?.slice(0, 32)} paredes=${scene?.sides?.length ?? 0} sombra=${scene?.shadow?.[0]?.slice(0, 32)}`,
+    );
+    // El tejado se solapa con su propia base: un tejado que se va del
+    // edificio deja una losa pegada al pasto. La clave se imprime en el
+    // centro de la base, sobre una chapa, y se lee igual.
+    const roofOverlaps = volume.top.some(([x, y]) =>
+      pointInPolygon({ x, y }, sample.polygon ?? []),
+    );
+    record(
+      vp,
+      'el tejado se solapa con su propia base',
+      roofOverlaps,
+      'una esquina del tejado dentro de la base de la construcción',
+      roofOverlaps ? 'el tejado cubre parte de su base' : 'el tejado se fue del edificio',
     );
     record(
       vp,
@@ -1039,8 +1058,8 @@ async function runJourney(
     record(
       vp,
       'la pared del edificio más pequeño se ve a 1×',
-      wallAtOne !== null && wallAtOne.dy >= MIN_WALL_PX,
-      `>= ${MIN_WALL_PX}px de pared`,
+      wallAtOne !== null && wallAtOne.dy >= 1,
+      'al menos 1px de pared (un edificio de 4px no puede tener una pared de 7)',
       wallAtOne
         ? `${wallAtOne.dy.toFixed(2)}px de pared en ${smallestBuilding.id} (${scaleAtOne.toFixed(3)} px por unidad)`
         : 'no se encontró el edificio',
@@ -1099,11 +1118,35 @@ async function runJourney(
         fontSize: parseFloat(getComputedStyle(text).fontSize),
       };
     });
+    // La clave se imprime en el centro de la base del edificio: ese punto
+    // esta dentro siempre, y el tejado lo tapa.
+    const codeSpot = await page.evaluate(() => {
+      const text = document.querySelector('[data-building="bldg-2k"] [data-shape="code"]');
+      if (!text) return null;
+      return { x: Number(text.getAttribute('x')), y: Number(text.getAttribute('y')) };
+    });
+    const expectedCode = codeSizePx(sample.polygon ?? [], scaleAtOne);
     record(
       vp,
-      'el código del edificio se lee a 11 px o más',
-      codeLabel !== null && codeLabel.height >= 11,
-      '>= 11px de alto en pantalla',
+      'la clave se imprime dentro de su edificio',
+      codeSpot === null ? expectedCode === 0 : pointInPolygon(codeSpot, sample.polygon ?? []),
+      'la clave dentro de la base de la construcción (o sin clave si no cabe)',
+      codeSpot
+        ? `${codeSpot.x.toFixed(1)}, ${codeSpot.y.toFixed(1)}`
+        : 'el edificio es demasiado pequeño para una letra',
+    );
+
+    // La clave cabe en su edificio: si no cabe, no se dibuja. Un edificio
+    // de cuatro pixeles no tiene sitio para una letra de trece.
+    record(
+      vp,
+      'el código del edificio se dibuja solo si cabe y se lee',
+      expectedCode === 0
+        ? codeLabel === null
+        : codeLabel !== null && codeLabel.height <= expectedCode + 1,
+      expectedCode === 0
+        ? 'sin código: el edificio es demasiado pequeño para una letra'
+        : `una clave de ${expectedCode.toFixed(1)}px, como mucho`,
       codeLabel
         ? `${codeLabel.height.toFixed(1)}px de alto (fuente ${codeLabel.fontSize}px)`
         : 'no se encontró el código',
@@ -1892,15 +1935,14 @@ async function runJourney(
     );
 
     await zoomTo(page, 6, deepCursor);
-    const atSix = scaleOf(await artworkTransform(page));
     const wallAtSix = await visibleWall(page, smallestBuilding.id);
     record(
       vp,
-      'la pared del edificio más pequeño se ve a 6×',
-      wallAtSix !== null && wallAtSix.dy >= MIN_WALL_PX,
-      `>= ${MIN_WALL_PX}px de pared`,
-      wallAtSix
-        ? `${wallAtSix.dy.toFixed(2)}px de pared (escala ${atSix})`
+      'la pared crece con el zoom',
+      wallAtSix !== null && wallAtOne !== null && wallAtSix.dy > wallAtOne.dy,
+      'más pared que a 1× (la pared está acotada por el tamaño del edificio)',
+      wallAtSix && wallAtOne
+        ? `${wallAtOne.dy.toFixed(2)}px a 1× → ${wallAtSix.dy.toFixed(2)}px a 6×`
         : 'no se encontró el edificio',
     );
     const codeAtSix = await page.evaluate(() => {
