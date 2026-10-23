@@ -149,12 +149,12 @@ screenshots.
 
 ## Tasks
 
-| ID  | Specs          | Work                                                                                                                           | Route  | Status  | Verification                                                     |
-| --- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------ | ------- | ---------------------------------------------------------------- |
-| T1  | S1, S2         | The generator's painting loop: the plan's words out, the orphan pixels out, the kerbs in.                                      | inline | done    | the regenerated artwork + the journey (366/366) + the unit tests |
-| T2  | S3, S5         | The roof stays on its building (the wall capped by the size) and the painter's order is the right way round.                   | inline | done | the journey (370/370) + the screenshots + the unit tests |
-| T3  | S4, S6, S7, S8 | The key fits its building, the map is not painted twice, the relief's tones stop shouting, no native tooltip, a quieter label. | inline | done | the journey (370/370) + the screenshots + the unit tests |
-| T4  | S9             | The demo's pins come from the catalogue and the track is its ring.                                                             | inline | planned | the journey + the screenshots                                    |
+| ID  | Specs          | Work                                                                                                                           | Route  | Status | Verification                                                     |
+| --- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------ | ------ | ---------------------------------------------------------------- |
+| T1  | S1, S2         | The generator's painting loop: the plan's words out, the orphan pixels out, the kerbs in.                                      | inline | done   | the regenerated artwork + the journey (366/366) + the unit tests |
+| T2  | S3, S5         | The roof stays on its building (the wall capped by the size) and the painter's order is the right way round.                   | inline | done   | the journey (370/370) + the screenshots + the unit tests         |
+| T3  | S4, S6, S7, S8 | The key fits its building, the map is not painted twice, the relief's tones stop shouting, no native tooltip, a quieter label. | inline | done   | the journey (370/370) + the screenshots + the unit tests         |
+| T4  | S9             | The demo's pins come from the catalogue and the track is its ring.                                                             | inline | done   | the unit tests (368) + the demo journey (370) + the screenshots  |
 
 ### Risks
 
@@ -235,3 +235,14 @@ down: the key could not be at least 11 screen pixels (on a phone at 1x the small
 pixels tall) and the wall could not be at least 7 pixels for the same reason. The new ones are: the
 key is printed inside its building's footprint, the roof overlaps its own base, and the wall grows
 with the zoom.
+
+**L6 — 2026-10-23 — Las posiciones se derivan del catálogo, no se escriben a mano.** Los pines de la
+demostracion llevaban porcentajes escritos a mano (41.96, 30.6, ...), y el catalogo se vuelve a
+trazar cada vez que el generador corre: cuando el plano se re-traza, lasuras quedan en el sitio
+viejo. El pin de la cafeteria caia en el pasto y el de la pista, en la piscina. Ahora cada pin de
+arranque se coloca en el centro de la zona que nombra, y una prueba nueva lo comprueba: si alguien
+vuelve a escribir una posicion a mano, la prueba falla.
+
+La pista de atletismo es un ovalo, y su caja completaIncludes el campo de juego (y la piscina que
+hay al lado). La caja que se publica es ahora un TRAMO del anillo, el de arriba: ahi caen el pin y
+el nombre de la zona, y no en el pasto de dentro.
