@@ -93,8 +93,8 @@ describe('el sistema de superficies', () => {
     // del reporte y la del reclamo son el mismo papel, con el mismo radio,
     // el mismo relleno y la misma elevación.
     const cards = [
-      readFileSync(join(ROOT, 'src/components/MyReports.jsx'), 'utf8'),
-      readFileSync(join(ROOT, 'src/components/ClaimInbox.jsx'), 'utf8'),
+      readFileSync(join(ROOT, 'src/components/MyReports.tsx'), 'utf8'),
+      readFileSync(join(ROOT, 'src/components/ClaimInbox.tsx'), 'utf8'),
     ];
     for (const source of cards) {
       expect(source, 'la tarjeta no usa el papel de panel').toMatch(/className="surface-panel/);

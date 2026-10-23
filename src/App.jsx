@@ -12,15 +12,15 @@ import { QuestionCircleIcon } from '@solar-icons/react/bold/question-circle';
 import { ShieldCheckIcon } from '@solar-icons/react/bold/shield-check';
 import { UserIcon } from '@solar-icons/react/bold/user';
 import CampusMap from './components/CampusMap.jsx';
-import ClaimInbox from './components/ClaimInbox.jsx';
+import ClaimInbox from './components/ClaimInbox.tsx';
 import ContactCard from './components/ContactCard.tsx';
 import LoginScreen from './components/LoginScreen.tsx';
 import Modal from './components/Modal.tsx';
-import MyReports from './components/MyReports.jsx';
+import MyReports from './components/MyReports.tsx';
 import OfflineBanner from './components/OfflineBanner.tsx';
 import PinCluster, { PinClusterList, clusterByZone } from './components/PinCluster.tsx';
 import ReportForm from './components/ReportForm.tsx';
-import ZoneLegend from './components/ZoneLegend.jsx';
+import ZoneLegend from './components/ZoneLegend.tsx';
 import ZonePicker from './components/ZonePicker.tsx';
 import { ErrorState, LoadingState } from './components/StateMessage.tsx';
 import {
