@@ -736,6 +736,58 @@ export function heightFor(zone: NamedZone | null | undefined): number {
   return HEIGHT_TABLE[heightCategory(zone)] ?? DEFAULT_HEIGHT;
 }
 
+/**
+ * How much of its own size a building's wall may be.
+ *
+ * A wall taller than the building is wide is not a wall: the roof slides
+ * further than the building is big, it leaves its own footprint, and the
+ * volume reads as a slab laid on the grass. The wall is of its family, but
+ * never taller than the building it stands on.
+ */
+export const WALL_TO_SIZE = 0.45;
+
+/**
+ * How much of its own size a building's key may be.
+ *
+ * The key has to fit INSIDE the building: a key that does not fit is not a
+ * key, it is a label floating over the neighbour.
+ */
+export const CODE_TO_SIZE = 0.45;
+
+/** A key smaller than this cannot be read, so it is not drawn. */
+export const MIN_CODE_PX = 7;
+
+/** The size of the key printed on a roof, in SCREEN pixels. */
+export const CODE_PX = 13;
+
+/**
+ * The wall of a building, in SCREEN pixels: the height of its family, capped
+ * by the size of its own footprint.
+ */
+export function wallHeightPx(
+  zone: NamedZone | null | undefined,
+  shape: Polygon,
+  scale: number,
+): number {
+  const family = heightFor(zone);
+  const bounds = polygonBounds(shape);
+  if (!bounds) return family;
+  const smallest = Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * scale;
+  return Math.min(family, smallest * WALL_TO_SIZE);
+}
+
+/**
+ * The size of the key printed on a roof, in SCREEN pixels: it fits its
+ * building, and it is zero when it would be too small to be read.
+ */
+export function codeSizePx(shape: Polygon, scale: number): number {
+  const bounds = polygonBounds(shape);
+  if (!bounds) return 0;
+  const smallest = Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * scale;
+  const size = Math.min(CODE_PX, smallest * CODE_TO_SIZE);
+  return size >= MIN_CODE_PX ? size : 0;
+}
+
 /** La luz normalizada: cualquier luz sirve, pero manda su dirección. */
 function unitLight(light: Light | null | undefined): Light {
   const x = light?.x ?? LIGHT.x;
