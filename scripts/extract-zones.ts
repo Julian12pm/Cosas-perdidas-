@@ -200,6 +200,18 @@ const UNIT_BANDS = {
  */
 const DATOS_GENERALES_BOX: PixelBox = { x: 45, y: 515, width: 175, height: 95, area: 0 };
 
+/*
+ * Las palabras del plano que son lo bastante grandes para ser lineas: los
+ * nombres de las unidades en la banda de arriba, la rosa de los vientos y el
+ * titulo del posgrado. La app los nombra en su leyenda, asi que el plano
+ * no los dice.
+ */
+const BLANKED_WORDS: PixelBox[] = [
+  { x: 0, y: 0, width: 700, height: 33, area: 0 },
+  { x: 585, y: 0, width: 80, height: 66, area: 0 },
+  { x: 612, y: 410, width: 88, height: 52, area: 0 },
+];
+
 /**
  * Regions of the raster that are map furniture, not campus content: the
  * right-hand legend panel, the "DATOS GENERALES" box, the "PLANO GENERAL
@@ -1305,6 +1317,68 @@ for (let y = 0; y < H; y++) {
   }
 }
 
+// El halo de la tinta: el borde antialiasado de un trazo del plano. Un
+// pixel pegado a la tinta es el borde de un glifo (una letra, un numero) y
+// no una acera. Fuera de las construcciones, donde las palabras del plano
+// estan, ese halo no se pinta.
+const inkHalo = new Uint8Array(W * H);
+for (let y = 1; y < H - 1; y++) {
+  for (let x = 1; x < W - 1; x++) {
+    const i = y * W + x;
+    if (inkMask[i]) continue;
+    if (
+      inkMask[i - 1] ||
+      inkMask[i + 1] ||
+      inkMask[i - W] ||
+      inkMask[i + W] ||
+      inkMask[i - W - 1] ||
+      inkMask[i - W + 1] ||
+      inkMask[i + W - 1] ||
+      inkMask[i + W + 1]
+    ) {
+      inkHalo[i] = 1;
+    }
+  }
+}
+
+// Una linea del plano es un trazo largo: una acera, un borde de pasto, el
+// eje de una calle. Una letra del plano es un trazo corto. La app imprime
+// sus propias claves, asi que las palabras del plano no llegan al arte: solo
+// sobreviven los trazos largos.
+const greyMask = new Uint8Array(W * H);
+for (let y = 0; y < H; y++) {
+  for (let x = 0; x < W; x++) {
+    const [r, g, b] = rgb(x, y);
+    if (isGreyLine(r, g, b)) greyMask[y * W + x] = 1;
+  }
+}
+/** The length of the grey run through (x, y), capped at the limit. */
+const greyRun = (x: number, y: number, dx: number, dy: number, limit: number): number => {
+  let n = 1;
+  let cx = x + dx;
+  let cy = y + dy;
+  while (n < limit && cx >= 0 && cy >= 0 && cx < W && cy < H && greyMask[cy * W + cx]) {
+    n++;
+    cx += dx;
+    cy += dy;
+  }
+  return n;
+};
+const lineMask = new Uint8Array(W * H);
+for (let y = 0; y < H; y++) {
+  for (let x = 0; x < W; x++) {
+    const i = y * W + x;
+    if (!greyMask[i]) continue;
+    const horizontal = greyRun(x, y, -1, 0, 17) + greyRun(x, y, 1, 0, 17) - 1;
+    if (horizontal >= 17) {
+      lineMask[i] = 1;
+      continue;
+    }
+    const vertical = greyRun(x, y, 0, -1, 17) + greyRun(x, y, 0, 1, 17) - 1;
+    if (vertical >= 17) lineMask[i] = 1;
+  }
+}
+
 const darkLayer = new Uint8Array(W * H);
 const layerCounts = new Map();
 for (let y = 0; y < H; y++) {
@@ -1314,10 +1388,18 @@ for (let y = 0; y < H; y++) {
     let layer;
 
     if (isInk(r, g, b)) {
-      // The black of the plan is either the printed ink (the code label
-      // printed inside a construction, the text of the plan) or the drop
-      // shadow the plan draws under every construction.
-      layer = shadowMask[i] ? 'shadow' : 'ink';
+      // The black of the plan is three things: the drop shadow it draws
+      // under every construction, the code printed INSIDE a construction, and
+      // the plan's own words (the codes by the doors, the street names, the
+      // compass). The app prints its own keys, so the words are erased: the
+      // code inside a construction is filled with the construction's own
+      // colour, and the rest is paper.
+      if (shadowMask[i]) layer = 'shadow';
+      else if (insideConstruction[i]) layer = safeMask[i] ? 'safe' : 'building';
+      else layer = 'paper';
+    } else if (inkHalo[i] && !insideConstruction[i]) {
+      // El borde de una palabra del plano: no se pinta.
+      layer = 'paper';
     } else if (isBuildingFill(r, g, b)) {
       layer = safeMask[i] ? 'safe' : 'building';
     } else if (isTrackFill(r, g, b)) {
@@ -1337,15 +1419,21 @@ for (let y = 0; y < H; y++) {
     } else if (isGreyLine(r, g, b)) {
       // A grey pixel surrounded by grey is the texture of a street or of a
       // lot; a grey pixel alone on the paper is one of the thin outlines.
-      layer = density(greyTable, x, y, 4) < 0.45 ? 'hairline' : 'paving';
+      // A grey pixel with NO neighbour is a mote: the raster's noise, not a
+      // kerb. And a grey pixel that does not run long enough to be a line
+      // is a letter of the plan, and the app prints its own keys.
+      if (!lineMask[i]) layer = 'paper';
+      else if (density(greyTable, x, y, 1) < 0.22) layer = 'paper';
+      else layer = density(greyTable, x, y, 4) < 0.45 ? 'hairline' : 'paving';
     } else {
       layer = 'paper';
     }
 
-    // La leyenda impresa del plano no se lleva al arte: la app tiene su
-    // panel de nombres, y el recuadro con sus muestras de color se
-    // contradice con él. El generador lo tapa con el fondo de la página.
+    // Las palabras del plano no se llevan al arte: la app tiene su propio
+    // panel de nombres, y el recuadro con las muestras de color se
+    // contradice con él. Se tapan con el fondo de la página.
     if (inBox(x, y, DATOS_GENERALES_BOX)) layer = 'paper';
+    if (BLANKED_WORDS.some((box) => inBox(x, y, box))) layer = 'paper';
 
     const index = LAYER_INDEX.get(layer);
     if (index !== undefined) darkLayer[i] = index;
