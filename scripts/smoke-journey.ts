@@ -3090,6 +3090,65 @@ async function runJourney(
     );
     await page.emulateMedia({ reducedMotion: null });
 
+    /* ── 3c. Las etiquetas del croquis no crecen con el zoom ───────── */
+    // El nombre del pin y el de la zona son etiquetas, no arte: si crecen
+    // con el croquis, una etiqueta acaba siendo una losa que tapa el mapa.
+    const pinLabel = page.locator('[data-testid="pin-label"]').first();
+    const labelBefore = await pinLabel.boundingBox();
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error('el navegador no dice el tamaño del viewport');
+    const zoomCursor = { x: viewport.width / 2, y: viewport.height / 2 };
+    await zoomTo(page, 4, zoomCursor);
+    const labelAfter = await pinLabel.boundingBox();
+    record(
+      vp,
+      'la etiqueta del pin no crece con el zoom',
+      labelBefore !== null &&
+        labelAfter !== null &&
+        Math.abs(labelAfter.width - labelBefore.width) <= 1,
+      'el mismo ancho a 1x y a 4x',
+      labelBefore && labelAfter
+        ? `${labelBefore.width.toFixed(1)}px → ${labelAfter.width.toFixed(1)}px`
+        : 'no se encontró la etiqueta',
+    );
+    // Y la etiqueta se dobla antes de salirse: no hay una losa que cruce
+    // el borde de la ventana.
+    const labelWidth = await page.evaluate(() => {
+      const label = document.querySelector('[data-testid="pin-label"]');
+      return label ? label.getBoundingClientRect().width : 0;
+    });
+    record(
+      vp,
+      'la etiqueta del pin no es más ancha que la ventana',
+      labelWidth > 0 && labelWidth <= Math.min(720, 0.72 * viewport.width) + 1,
+      `<= ${Math.min(720, Math.round(0.72 * viewport.width))}px`,
+      `${labelWidth.toFixed(1)}px`,
+    );
+    await zoomTo(page, 1, zoomCursor);
+
+    /* ── 3d. Con un diálogo abierto el croquis no se mueve ──────────── */
+    // El detalle de un pin es un diálogo: mientras está abierto, la rueda
+    // belongs to the dialog, not to the map behind it.
+    await page.locator('button[aria-label^="Pin "]').first().click();
+    await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
+    const scaleWithDialog = scaleOf(await artworkTransform(page));
+    await page.mouse.move(zoomCursor.x, zoomCursor.y);
+    await page.mouse.wheel(0, -400);
+    await sleep(300);
+    const scaleAfterWheel = scaleOf(await artworkTransform(page));
+    record(
+      vp,
+      'con un diálogo abierto el croquis no se amplía',
+      Math.abs(scaleAfterWheel - scaleWithDialog) <= 0.01,
+      'la escala no cambia',
+      `${scaleWithDialog.toFixed(2)} → ${scaleAfterWheel.toFixed(2)}`,
+    );
+    await page.keyboard.press('Escape');
+    await page
+      .locator('[role="dialog"]')
+      .waitFor({ state: 'detached' })
+      .catch(() => {});
+
     return { screenshots };
   } finally {
     await context.close();

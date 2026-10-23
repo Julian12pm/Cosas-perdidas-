@@ -845,6 +845,11 @@ export default function CampusMap({
               transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
               transformOrigin: '0 0',
               '--pin-scale': pinScale,
+              '--zoom': transform.scale,
+              // El zoom, para que las etiquetas que NO son parte del artwork
+              // (el nombre del pin, el de la zona) conserven su tamaño en
+              // pantalla: una etiqueta que crece con el croquis acaba siendo
+              // una losa que tapa el mapa.
               // Sin ampliar, el gesto vertical es de la página: un
               // deslizamiento que empieza sobre una zona desplaza la
               // página. Ampliado, el croquis guarda el gesto entero.
@@ -922,7 +927,7 @@ export default function CampusMap({
                     >
                       <span
                         data-testid={`zone-name-${zone.id}`}
-                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone.box)} whitespace-nowrap rounded-md bg-surface-900/80 px-1.5 py-0.5 text-[12px] font-semibold text-brand-200 ring-1 ring-surface-600/70 transition-opacity duration-fast ${
+                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone.box)} max-w-[16rem] origin-center scale-[calc(1/var(--zoom,1))] whitespace-nowrap rounded-md bg-surface-900/80 px-1.5 py-0.5 text-[12px] font-semibold text-brand-200 ring-1 ring-surface-600/70 transition-opacity duration-fast ${
                           named
                             ? 'opacity-100'
                             : 'opacity-0 group-hover:opacity-100 group-focus:opacity-100'
