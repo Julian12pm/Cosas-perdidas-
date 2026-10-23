@@ -1088,6 +1088,31 @@ async function runJourney(browser, viewport) {
         roofDialog.slice(0, 140) ||
           `no se abrió ningún diálogo (toque en ${roofTap.point.x.toFixed(0)}, ${roofTap.point.y.toFixed(0)})`,
       );
+
+      // El edificio que se acaba de tocar dice su nombre en el croquis: en
+      // un teléfono nadie pasa el cursor por encima del plano.
+      await page
+        .waitForFunction(
+          (id) => {
+            const chip = document.querySelector(`[data-testid="zone-name-${id}"]`);
+            return chip ? Number(getComputedStyle(chip).opacity) > 0.9 : false;
+          },
+          roofTap.zone.id,
+          { timeout: 3000 },
+        )
+        .catch(() => {});
+      const roofChip = await page.evaluate((id) => {
+        const chip = document.querySelector(`[data-testid="zone-name-${id}"]`);
+        return chip ? getComputedStyle(chip).opacity : '';
+      }, roofTap.zone.id);
+      record(
+        vp,
+        'al tocar una zona, el croquis dice su nombre',
+        Number(roofChip) > 0.9,
+        `el nombre de "${roofTap.zone.label}" a la vista`,
+        `opacidad ${roofChip || 'nula'}`,
+      );
+
       await page.keyboard.press('Escape');
       await page
         .locator('[role="dialog"]')

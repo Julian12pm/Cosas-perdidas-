@@ -163,7 +163,9 @@ function MapPin({ report, onClick }) {
           }`}
         />
       </div>
-      <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-surface-900/95 px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-panel backdrop-blur-sm transition-opacity duration-base group-hover:opacity-100">
+      {/* El nombre del pin responde al cursor, al foco del teclado y a la
+          presión del dedo: en un teléfono no hay cursor. */}
+      <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-surface-900/95 px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-panel backdrop-blur-sm transition-opacity duration-base group-hover:opacity-100 group-focus-visible:opacity-100 group-active:opacity-100">
         <span
           className={`inline-flex items-center gap-1 ${isLost ? 'text-red-400' : 'text-green-400'}`}
         >
