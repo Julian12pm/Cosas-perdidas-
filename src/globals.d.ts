@@ -23,5 +23,7 @@ declare module 'react' {
   interface CSSProperties {
     /** La escala con la que se dibuja el pin, la que el croquis mide. */
     '--pin-scale'?: number | string;
+    /** El zoom del croquis: las etiquetas que no son arte lo consultan. */
+    '--zoom'?: number | string;
   }
 }
