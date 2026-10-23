@@ -50,7 +50,7 @@ export default function ContactCard({ contact, claimId, single = false }) {
           onClick={() => setRevealed(true)}
           aria-expanded={revealed}
           aria-controls={contentId}
-          className="mt-2 min-h-[44px] cursor-pointer rounded-lg border border-brand-500/40 px-3 py-2 text-xs font-semibold text-brand-200 transition-colors hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-2 min-h-[44px] cursor-pointer rounded-lg border border-brand-500/40 px-3 py-2 text-xs font-semibold text-brand-200 transition-colors duration-fast hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           <span data-testid={single ? 'contact-reveal' : undefined}>
             {revealed ? 'Contacto liberado' : 'Ver el contacto'}
@@ -69,7 +69,7 @@ export default function ContactCard({ contact, claimId, single = false }) {
             <button
               type="button"
               onClick={copy}
-              className="min-h-[44px] cursor-pointer rounded-lg border border-surface-600/60 px-3 py-2 text-xs text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="min-h-[44px] cursor-pointer rounded-lg border border-surface-600/60 px-3 py-2 text-xs text-surface-200 transition-colors duration-fast hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
             >
               {copied ? 'Correo copiado' : 'Copiar correo'}
             </button>

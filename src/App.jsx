@@ -143,7 +143,7 @@ function MapPin({ report, onClick }) {
       />
       <div className="relative flex flex-col items-center">
         <div
-          className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/80 transition-all duration-300 group-hover:scale-125 ${
+          className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/80 transition-transform duration-slow group-hover:scale-125 ${
             isLost ? 'bg-pin-red animate-pin-pulse' : 'bg-pin-green animate-pin-pulse-green'
           }`}
         >
@@ -155,7 +155,7 @@ function MapPin({ report, onClick }) {
           }`}
         />
       </div>
-      <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-surface-900/95 px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-panel backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100">
+      <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-surface-900/95 px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-panel backdrop-blur-sm transition-opacity duration-base group-hover:opacity-100">
         <span
           className={`inline-flex items-center gap-1 ${isLost ? 'text-red-400' : 'text-green-400'}`}
         >
@@ -209,7 +209,7 @@ function PinTypeModal({ pending, onClose, onSelect }) {
         <button
           type="button"
           onClick={onClose}
-          className="w-full cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="w-full cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors duration-fast hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           Cancelar
         </button>
@@ -226,9 +226,9 @@ function PinTypeModal({ pending, onClose, onSelect }) {
           type="button"
           data-testid="report-type-lost"
           onClick={() => onSelect('lost')}
-          className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-red-500/20 bg-red-500/10 p-4 transition-all duration-300 hover:border-red-500/40 hover:bg-red-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-red-500/20 bg-red-500/10 p-4 transition-colors duration-slow hover:border-red-500/40 hover:bg-red-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pin-red transition-transform group-hover:scale-110">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pin-red transition-transform duration-fast group-hover:scale-110">
             <span className="text-lg text-white">?</span>
           </div>
           <div className="text-left">
@@ -244,9 +244,9 @@ function PinTypeModal({ pending, onClose, onSelect }) {
           type="button"
           data-testid="report-type-found"
           onClick={() => onSelect('found')}
-          className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-green-500/20 bg-green-500/10 p-4 transition-all duration-300 hover:border-green-500/40 hover:bg-green-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-green-500/20 bg-green-500/10 p-4 transition-colors duration-slow hover:border-green-500/40 hover:bg-green-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pin-green transition-transform group-hover:scale-110">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pin-green transition-transform duration-fast group-hover:scale-110">
             <span className="text-lg text-white">✓</span>
           </div>
           <div className="text-left">
@@ -342,7 +342,7 @@ function ReleaseKeyModal({ report, onClose }) {
           type="button"
           data-testid="release-key-copy"
           onClick={copy}
-          className="mt-3 min-h-[44px] cursor-pointer rounded-lg border border-brand-500/40 px-3 py-2 text-xs font-semibold text-brand-200 transition-colors hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-3 min-h-[44px] cursor-pointer rounded-lg border border-brand-500/40 px-3 py-2 text-xs font-semibold text-brand-200 transition-colors duration-fast hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           {copied ? 'Clave copiada' : 'Copiar clave'}
         </button>
@@ -469,7 +469,7 @@ function ClaimModal({ report, foundReports, onClose, onSubmit }) {
           type="submit"
           data-testid="claim-submit"
           disabled={!ready || sending}
-          className="sticky bottom-0 inline-flex min-h-[44px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-panel transition-all disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="sticky bottom-0 inline-flex min-h-[44px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-panel transition-[background-image] duration-base disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           {sending ? 'Enviando…' : 'Enviar el reclamo'}
         </button>
@@ -605,7 +605,7 @@ export function PinInfoModal({
             type="button"
             data-testid="claim-open"
             onClick={() => onClaim(report)}
-            className="min-h-[44px] w-full cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-2.5 text-sm font-semibold text-surface-900 transition-all hover:from-brand-400 hover:to-brand-500 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="min-h-[44px] w-full cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-2.5 text-sm font-semibold text-surface-900 transition-[background-image] duration-base hover:from-brand-400 hover:to-brand-500 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
           >
             Es mío: quiero reclamarlo
           </button>
@@ -643,7 +643,7 @@ export function PinInfoModal({
                 data-testid="deposit-submit"
                 onClick={deposit}
                 disabled={!safePoint}
-                className="min-h-[44px] cursor-pointer rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2 text-sm font-semibold text-brand-200 transition-colors hover:bg-brand-500/20 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="min-h-[44px] cursor-pointer rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2 text-sm font-semibold text-brand-200 transition-colors duration-fast hover:bg-brand-500/20 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 Dejarlo en resguardo
               </button>
@@ -673,7 +673,7 @@ export function PinInfoModal({
               <button
                 type="button"
                 onClick={copy}
-                className="min-h-[44px] cursor-pointer rounded-lg border border-surface-600/60 px-3 py-2 text-xs text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="min-h-[44px] cursor-pointer rounded-lg border border-surface-600/60 px-3 py-2 text-xs text-surface-200 transition-colors duration-fast hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 {copied ? 'Clave copiada' : 'Copiar clave'}
               </button>
@@ -704,7 +704,7 @@ export function PinInfoModal({
                   <button
                     type="button"
                     onClick={() => onResolve(report.id)}
-                    className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-all hover:from-green-500 hover:to-green-600 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                    className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-[background-image] duration-base hover:from-green-500 hover:to-green-600 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                   >
                     <CheckCircleIcon size={16} className="shrink-0" aria-hidden="true" />
                     Sí, la entrega se realizó
@@ -712,7 +712,7 @@ export function PinInfoModal({
                   <button
                     type="button"
                     onClick={() => setConfirming(false)}
-                    className="min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                    className="min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors duration-fast hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                   >
                     Cancelar
                   </button>
@@ -757,7 +757,7 @@ export function PinInfoModal({
                     }}
                     placeholder={'• '.repeat(RELEASE_KEY_LENGTH).trim()}
                     aria-describedby={error ? `${codeId}-error` : undefined}
-                    className={`min-h-[44px] w-full rounded-xl border bg-surface-700/50 px-4 py-3 text-center font-mono text-xl tracking-[0.5em] text-white focus:outline-none focus:ring-2 focus:ring-focus transition-all ${
+                    className={`min-h-[44px] w-full rounded-xl border bg-surface-700/50 px-4 py-3 text-center font-mono text-xl tracking-[0.5em] text-white focus:outline-none focus:ring-2 focus:ring-focus transition-colors duration-base ${
                       error
                         ? 'animate-shake border-red-500 bg-red-500/10'
                         : 'border-input-border focus:border-brand-500'
@@ -795,7 +795,7 @@ function NavButton({ active, children, ...rest }) {
     <button
       type="button"
       aria-current={active ? 'page' : undefined}
-      className={`inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none sm:text-sm ${
+      className={`inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors duration-fast focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none sm:text-sm ${
         active
           ? 'bg-brand-500/20 text-brand-200'
           : 'text-surface-300 hover:bg-surface-700/60 hover:text-white'
@@ -1524,7 +1524,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleSignOut}
-              className="inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-xl border border-surface-600/60 px-3 py-2 text-xs font-semibold text-surface-300 transition-colors hover:bg-surface-700/60 hover:text-white focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-xl border border-surface-600/60 px-3 py-2 text-xs font-semibold text-surface-300 transition-colors duration-fast hover:bg-surface-700/60 hover:text-white focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
             >
               <LogoutIcon size={16} className="shrink-0" aria-hidden="true" />
               Salir

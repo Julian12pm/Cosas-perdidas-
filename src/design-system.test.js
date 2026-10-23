@@ -34,6 +34,14 @@ function componentFiles() {
 
 const COMPONENTS = componentFiles();
 
+/** Las clases de un componente, en las cadenas que se pintan en pantalla. */
+function classRuns(source) {
+  const runs = [];
+  const pattern = /className\s*=\s*(?:"([^"]*)"|\{`([^`]*)`\})/g;
+  for (const match of source.matchAll(pattern)) runs.push(match[1] ?? match[2] ?? '');
+  return runs;
+}
+
 describe('el sistema de superficies', () => {
   it('declara los tokens de la receta de superficie', () => {
     for (const token of [
@@ -90,6 +98,47 @@ describe('el sistema de superficies', () => {
     ];
     for (const source of cards) {
       expect(source, 'la tarjeta no usa el papel de panel').toMatch(/className="surface-panel/);
+    }
+  });
+});
+
+describe('la escala de movimiento', () => {
+  it('declara las duraciones y las curvas', () => {
+    for (const token of [
+      '--duration-fast',
+      '--duration-base',
+      '--duration-slow',
+      '--duration-entrance',
+      '--ease-entrance',
+      '--ease-exit',
+    ]) {
+      expect(CSS, `falta el token ${token}`).toContain(token);
+    }
+  });
+
+  it('ningún componente declara su propia duración', () => {
+    for (const { file, source } of COMPONENTS) {
+      expect(source, `${file} declara una duración literal`).not.toMatch(/duration-\d+/);
+    }
+  });
+
+  it('toda transición usa una duración de la escala', () => {
+    const scale = ['duration-fast', 'duration-base', 'duration-slow', 'duration-entrance'];
+    for (const { file, source } of COMPONENTS) {
+      for (const run of classRuns(source)) {
+        const tokens = run.split(/\s+/).filter(Boolean);
+        if (!tokens.some((token) => token.startsWith('transition-'))) continue;
+        expect(
+          tokens.some((token) => scale.includes(token)),
+          `${file}: una transición sin duración de la escala (${run.trim()})`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('ningún componente usa transition-all', () => {
+    for (const { file, source } of COMPONENTS) {
+      expect(source, `${file} usa transition-all`).not.toMatch(/transition-all/);
     }
   });
 });
