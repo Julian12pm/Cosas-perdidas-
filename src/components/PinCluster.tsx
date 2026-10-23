@@ -3,7 +3,7 @@ import { QuestionCircleIcon } from '@solar-icons/react/bold/question-circle';
 import Modal from './Modal.tsx';
 import { formatAge } from '../data.ts';
 import { artworkToPercent, polygonCentroid } from '../map/geometry.ts';
-import { MAP_IMAGE, ZONE_BY_ID } from '../map/zones.ts';
+import { MAP_SPACE, ZONE_BY_ID } from '../map/zones.ts';
 import type { ClusterGroup, Report } from '../types.ts';
 
 /*
@@ -39,7 +39,7 @@ function positionOf(group: ClusterGroup): { x: number; y: number } {
     const first = group.reports[0];
     return { x: first?.x ?? 0, y: first?.y ?? 0 };
   }
-  const percent = artworkToPercent(centroid, MAP_IMAGE);
+  const percent = artworkToPercent(centroid, MAP_SPACE);
   return { x: parseFloat(percent.x.toFixed(2)), y: parseFloat(percent.y.toFixed(2)) };
 }
 

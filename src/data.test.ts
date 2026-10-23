@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { MOCK_PINS } from './data.ts';
 import { artworkToPercent, polygonCentroid } from './map/geometry.ts';
-import { MAP_IMAGE, ZONE_BY_ID } from './map/zones.ts';
+import { MAP_SPACE, ZONE_BY_ID } from './map/zones.ts';
 
 /*
  * Los pines de la demostración se colocan con el catálogo, no a mano. El
@@ -16,7 +16,7 @@ describe('los pines de arranque', () => {
       if (!zone?.polygon) throw new Error(`la zona ${pin.zoneId} no está en el catálogo`);
       const centroid = polygonCentroid(zone.polygon);
       if (!centroid) throw new Error(`la zona ${pin.zoneId} no tiene centro`);
-      const percent = artworkToPercent(centroid, MAP_IMAGE);
+      const percent = artworkToPercent(centroid, MAP_SPACE);
 
       expect(Math.abs(pin.x - percent.x), `el pin ${pin.id} se movió en x`).toBeLessThan(0.01);
       expect(Math.abs(pin.y - percent.y), `el pin ${pin.id} se movió en y`).toBeLessThan(0.01);

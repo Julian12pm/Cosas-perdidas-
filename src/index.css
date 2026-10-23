@@ -128,6 +128,19 @@
   --color-relief-safe-mark: #fbd08a;
 
   /**
+   * Ground — the campus the volumes stand on: the paved surface, the lawns,
+   * the athletics track, the courts and the brick lots. The scene is traced
+   * from the official plan's own colour classes (src/map/scene.ts), so these
+   * tones ARE the plan's, re-stepped for the dark palette. The surface sits
+   * one step above the page so the campus reads as a shape, not as a hole.
+   */
+  --color-ground-surface: #1c2231;
+  --color-ground-green: #234733;
+  --color-ground-track: #6b5335;
+  --color-ground-court: #2f6f8c;
+  --color-ground-lot: #6e4a3a;
+
+  /**
    * Superficies — la receta única del producto.
    *
    * Antes cada panel declaraba su propio relleno, borde, radio y sombra, y

@@ -48,7 +48,7 @@ import {
   reportFromApi,
 } from './data.ts';
 import { artworkToPercent, polygonCentroid, zoneAtPoint } from './map/geometry.ts';
-import { MAP_IMAGE, ZONES } from './map/zones.ts';
+import { MAP_SPACE, ZONES } from './map/zones.ts';
 import type { Claim, Point, Report, ReportDraft, ScreenState, Session, Zone } from './types.ts';
 
 /*
@@ -143,8 +143,8 @@ function apiMessage(error: unknown, fallback: string): string {
 /** El punto del pin en los píxeles del artwork: así lo guarda el API. */
 function artworkPoint(pending: PendingPoint): Point {
   return {
-    x: ((pending?.x ?? 0) / 100) * MAP_IMAGE.width,
-    y: ((pending?.y ?? 0) / 100) * MAP_IMAGE.height,
+    x: ((pending?.x ?? 0) / 100) * MAP_SPACE.width,
+    y: ((pending?.y ?? 0) / 100) * MAP_SPACE.height,
   };
 }
 
@@ -1145,7 +1145,7 @@ export default function App() {
       if (!centroid) return;
 
       cancelExit();
-      const percent = artworkToPercent(centroid, MAP_IMAGE);
+      const percent = artworkToPercent(centroid, MAP_SPACE);
       setPending({
         x: parseFloat(percent.x.toFixed(2)),
         y: parseFloat(percent.y.toFixed(2)),
@@ -1160,7 +1160,7 @@ export default function App() {
   const handlePick = useCallback(
     (point: Point) => {
       const zone = zoneAtPoint(point, ZONES);
-      const percent = artworkToPercent(point, MAP_IMAGE);
+      const percent = artworkToPercent(point, MAP_SPACE);
 
       cancelExit();
       setPending({
@@ -1759,12 +1759,11 @@ export default function App() {
                 ) : (
                   <CampusMap
                     zones={ZONES}
-                    image={MAP_IMAGE}
+                    space={MAP_SPACE}
                     onSelectZone={handleSelectZone}
                     onPick={handlePick}
                     highlightZoneId={highlightZoneId}
                     empty={mapReports.length === 0}
-                    offline={!online}
                   >
                     {mapGroups.map((group) =>
                       group.reports.length === 1 ? (
