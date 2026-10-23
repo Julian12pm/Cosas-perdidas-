@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { polygonArea } from './geometry.ts';
+import { polygonArea, polygonBounds } from './geometry.ts';
 import { MAP_IMAGE, UNCERTAIN_CODES, ZONE_BY_ID, ZONES } from './zones.ts';
 import type { Box, Polygon, Zone, ZoneKind } from '../types.ts';
 
@@ -173,26 +173,54 @@ describe('footprints', () => {
   // that the plan draws with a courtyard is not a rectangle.
   const ADMINISTRATIVE = zoneById('bldg-a');
 
-  it('traces the footprint of a construction instead of drawing its box', () => {
+  // The plan cuts two bites out of the administrative building and prints
+  // its code over it. The closing of the footprint heals both: what is
+  // left is the rectangle the plan draws.
+  it('heals the bites and the code the plan cuts into a construction', () => {
     const box = boxOf(ADMINISTRATIVE);
-    const polygon = polygonOf(ADMINISTRATIVE);
-    expect(polygon).not.toEqual(boxCorners(box));
-    expect(polygon.length).toBeGreaterThan(4);
-    expect(polygonArea(polygon)).toBeLessThan(box.width * box.height);
+    expect(polygonOf(ADMINISTRATIVE)).toEqual(boxCorners(box));
+    expect(polygonOf(ADMINISTRATIVE).length).toBe(4);
   });
 
-  it('gives every construction at least one fragment, the primary first', () => {
+  // The footprint is traced from the pixels of the plan, so a construction
+  // that the plan draws with an L keeps its L.
+  it('traces the footprint of a construction instead of drawing its box', () => {
+    const zone = zoneById('bldg-unknown-01');
+    const box = boxOf(zone);
+    expect(polygonOf(zone)).not.toEqual(boxCorners(box));
+    expect(polygonArea(polygonOf(zone))).toBeLessThan(box.width * box.height);
+  });
+
+  it('gives every construction at least one shape, the primary first', () => {
     for (const zone of buildings) {
-      expect(zone.fragments?.length ?? 0).toBeGreaterThan(0);
-      expect(zone.polygon).toEqual(zone.fragments?.[0]);
+      expect(polygonOf(zone).length).toBeGreaterThan(2);
+      // The fragments are only published when the plan draws the construction
+      // in more than one piece: the polygon is then its biggest piece.
+      if (zone.fragments) expect(polygonOf(zone)).toEqual(zone.fragments[0]);
     }
   });
 
-  it('keeps every fragment of the constructions the plan cuts in half', () => {
-    // The printed code of these three cuts its own construction in two.
+  // The printed code of these three used to cut its own construction in
+  // two. The closing heals the code: the construction is one shape again.
+  it('heals the code that used to cut its own construction', () => {
     for (const id of ['bldg-2h', 'bldg-k', 'bldg-u']) {
       const zone = zoneById(id);
-      expect(zone.fragments?.length ?? 0).toBeGreaterThan(1);
+      expect(zone.fragments).toBeUndefined();
+      expect(polygonOf(zone).length).toBeGreaterThan(2);
+    }
+  });
+
+  // The plan draws its own offset shadow next to every construction. A
+  // fragment thinner than four pixels is that sliver of shadow, not a wing
+  // of the building.
+  it('drops the slivers of the plan’s own shadow', () => {
+    for (const zone of buildings) {
+      for (const ring of zone.fragments ?? [polygonOf(zone)]) {
+        const bounds = polygonBounds(ring);
+        expect(bounds).not.toBeNull();
+        const smaller = Math.min(bounds!.maxX - bounds!.minX, bounds!.maxY - bounds!.minY);
+        expect(smaller).toBeGreaterThanOrEqual(4);
+      }
     }
   });
 
