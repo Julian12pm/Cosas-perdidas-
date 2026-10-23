@@ -92,7 +92,7 @@ export default function PinCluster({ group, onOpen }) {
         event.stopPropagation();
         onOpen(group.zoneId);
       }}
-      className="pointer-events-auto absolute z-10 origin-bottom -translate-x-1/2 -translate-y-full cursor-pointer focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+      className="pointer-events-auto absolute z-20 origin-bottom -translate-x-1/2 -translate-y-full cursor-pointer focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
       style={{
         left: `${group.position.x}%`,
         top: `${group.position.y}%`,
