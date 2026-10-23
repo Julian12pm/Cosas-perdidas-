@@ -154,8 +154,8 @@ export default function ZoneLegend({ zones = [], onSelect, onHover }) {
       >
         <div className="overflow-hidden">
           <p className="mt-3 text-xs leading-relaxed text-text-muted">
-            Pasa el cursor por una fila y su zona se enciende en el croquis; tócala para marcar algo
-            ahí.
+            Una fila enciende su zona en el croquis, con el cursor o con el dedo. Tócala para marcar
+            algo ahí.
           </p>
 
           <div className="mt-2">
@@ -206,6 +206,9 @@ export default function ZoneLegend({ zones = [], onSelect, onHover }) {
                             title={text}
                             tabIndex={index === tabStop ? 0 : -1}
                             onClick={() => onSelect?.(zone)}
+                            // El dedo también enciende: el hover es un gusto del
+                            // escritorio, no un requisito.
+                            onPointerDown={() => onHover?.(zone.id)}
                             onMouseEnter={() => onHover?.(zone.id)}
                             onMouseLeave={() => onHover?.(null)}
                             onFocus={() => {
