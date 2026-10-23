@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import Modal from './Modal.jsx';
-import ContactCard from './ContactCard.jsx';
-import { EmptyState, ErrorState, LoadingState } from './StateMessage.jsx';
+import Modal from './Modal.tsx';
+import ContactCard from './ContactCard.tsx';
+import { EmptyState, ErrorState, LoadingState } from './StateMessage.tsx';
 import { UNKNOWN_STATUS_LABEL, formatAge } from '../data.ts';
+import type { Claim, ScreenState } from '../types.ts';
 
 /*
  * La bandeja de reclamos: lo que los demás piden contra tus reportes y lo que
@@ -11,15 +12,29 @@ import { UNKNOWN_STATUS_LABEL, formatAge } from '../data.ts';
  * quedar registrada.
  */
 
-const STATUS_LABELS = {
+const STATUS_LABELS: Record<Claim['status'], string> = {
   pending: 'Pendiente',
   approved: 'Aprobado',
   rejected: 'Rechazado',
   expired: 'Expirado',
 };
 
+/** Las decisiones que se toman sobre un reclamo. */
+interface ClaimDecision {
+  claim: Claim;
+  kind: 'approve' | 'reject';
+}
+
 /** Una fila de la bandeja, con el dato ciego que ofrece el reclamante. */
-function ClaimRow({ claim, actions, single = false }) {
+function ClaimRow({
+  claim,
+  actions,
+  single = false,
+}: {
+  claim: Claim;
+  actions?: React.ReactNode;
+  single?: boolean;
+}) {
   return (
     <li data-testid={`claim-${claim.id}`} className="surface-panel p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -62,8 +77,16 @@ export default function ClaimInbox({
   onRetry,
   offline = false,
   error = '',
+}: {
+  claims: Claim[];
+  onApprove: (claimId: string) => void | Promise<void>;
+  onReject: (claimId: string) => void | Promise<void>;
+  state?: ScreenState;
+  onRetry?: () => void;
+  offline?: boolean;
+  error?: string;
 }) {
-  const [decision, setDecision] = useState(null);
+  const [decision, setDecision] = useState<ClaimDecision | null>(null);
   const [busy, setBusy] = useState(false);
 
   const incoming = claims.filter((claim) => claim.direction === 'incoming');

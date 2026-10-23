@@ -3,8 +3,9 @@ import { CheckCircleIcon } from '@solar-icons/react/bold/check-circle';
 import { ClockCircleIcon } from '@solar-icons/react/bold/clock-circle';
 import { MapPointIcon } from '@solar-icons/react/bold/map-point';
 import { QuestionCircleIcon } from '@solar-icons/react/bold/question-circle';
-import { EmptyState, ErrorState, LoadingState } from './StateMessage.jsx';
+import { EmptyState, ErrorState, LoadingState } from './StateMessage.tsx';
 import { REPORT_STATUS_LABELS, UNKNOWN_STATUS_LABEL, copyToClipboard, formatAge } from '../data.ts';
+import type { Claim, Report, ReportStatus, ScreenState } from '../types.ts';
 
 /*
  * "Mis reportes" es el archivo del estudiante: qué reportes publicó, en qué
@@ -12,7 +13,7 @@ import { REPORT_STATUS_LABELS, UNKNOWN_STATUS_LABEL, copyToClipboard, formatAge 
  * llegan. Nada se borra al cerrar un caso: el reporte resuelto sigue aquí.
  */
 
-const STATUS_STYLES = {
+const STATUS_STYLES: Record<ReportStatus, string> = {
   open: 'bg-surface-700/70 text-surface-200',
   pending_claim: 'bg-amber-500/15 text-amber-300',
   in_custody: 'bg-sky-500/15 text-sky-300',
@@ -22,7 +23,7 @@ const STATUS_STYLES = {
 };
 
 /** Copia la clave de liberación al portapapeles. */
-function CopyKey({ value }) {
+function CopyKey({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -47,6 +48,13 @@ export default function MyReports({
   state = 'ready',
   onRetry,
   apiMode = false,
+}: {
+  reports: Report[];
+  claims: Claim[];
+  onOpenReport: (report: Report) => void;
+  state?: ScreenState;
+  onRetry?: () => void;
+  apiMode?: boolean;
 }) {
   return (
     <section data-testid="my-reports" className="w-full max-w-3xl">
