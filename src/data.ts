@@ -295,10 +295,13 @@ export const DEMO_LATENCY_MS = 250;
 /**
  * La posición de un pin: el API manda los píxeles del artwork y el mapa
  * trabaja con porcentajes, como los pines de la demostración.
+ *
+ * La vista del dueño no lleva posición: un reporte colocado por zona se
+ * dibuja en el centro de su zona.
  */
-function positionOf(report: PublicReport): { x: number; y: number } {
-  const x = Number(report.map_x);
-  const y = Number(report.map_y);
+function positionOf(report: PublicReport | OwnerReport): { x: number; y: number } {
+  const x = 'map_x' in report ? Number(report.map_x) : Number.NaN;
+  const y = 'map_y' in report ? Number(report.map_y) : Number.NaN;
   if (Number.isFinite(x) && Number.isFinite(y)) {
     const percent = artworkToPercent({ x, y }, MAP_IMAGE);
     return { x: round2(percent.x), y: round2(percent.y) };
@@ -325,7 +328,7 @@ function round2(value: number): number {
  * dueño se encima de la pública cuando la hay.
  */
 export function reportFromApi(
-  report: PublicReport,
+  report: PublicReport | OwnerReport,
   { session, owner = null }: { session: Session; owner?: OwnerReport | null },
 ): Report {
   const mine = report.alias === reporterAlias(session.id);
