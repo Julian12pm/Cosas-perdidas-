@@ -9,7 +9,9 @@ sobre la construcción que nombran.
 (the demo journey, 366 browser assertions, 2 viewports) · `vp exec node scripts/smoke-api.ts` (the
 full-stack journey, 26 assertions) · `vp check` · `vp build`.
 
-**Status: PLANNED. Nothing of this phase has been built yet.**
+**Status: BUILT.** The artwork has no words and no orphan pixels, the roof stays on its building,
+the key fits inside it, the painter's order is the right way round, the map is not painted twice,
+every pin falls where the catalogue says, and the journey says so (370 assertions).
 
 ---
 
@@ -246,3 +248,16 @@ vuelve a escribir una posicion a mano, la prueba falla.
 La pista de atletismo es un ovalo, y su caja completaIncludes el campo de juego (y la piscina que
 hay al lado). La caja que se publica es ahora un TRAMO del anillo, el de arriba: ahi caen el pin y
 el nombre de la zona, y no en el pasto de dentro.
+
+**L7 — 2026-10-23 — The evidence.** `vp test`: 368 pass (two of them new: the pins fall where the
+catalogue says, and the catalogue's zones are all real). `vp check`: clean. `vp build`: OK. The demo
+journey: 370/370 assertions (two new ones: the roof overlaps its own base, and the key is printed
+inside its building's footprint), 0 console errors. The full-stack journey: 26/26 against a real
+Postgres 16. The artwork went from 110 KB to 51 KB.
+
+**L8 — 2026-10-23 — What is still open.** Two things the phase found and did not decide. The
+building heights still come from the plan's legend (a classroom is low, a library is tall) and not
+from the building's own size, so a big sports hall and a small office with the same name have the
+same wall; and the track is published as a segment of its ring, so its hit area is the segment and not
+the whole oval (the oval's infield is not a zone). Both are decisions the product should take, and
+both are cheap to change now that the rules live in one place.
