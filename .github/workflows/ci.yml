@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Gates and browser journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The Postgres the API journey walks against: the service below, not a
+      # container of its own. The journey uses it as it is and empties its own
+      # tables before it starts.
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/objetos_perdidos
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: objetos_perdidos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d objetos_perdidos"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: pnpm
+        # No version: the action reads the `packageManager` field of the
+        # repository (pnpm@12.14.0), so the pin lives in one place.
+        uses: pnpm/action-setup@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          # The version the repository pins (.node-version): Node 24 LTS.
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Vite+ CLI
+        # `vp` has to exist before the project is installed: the same version
+        # the project pins as a dev dependency.
+        run: npm install -g vite-plus@1.3.0
+
+      - name: Install
+        # pnpm 12 does not run the build scripts of the dependencies unless
+        # they are approved: esbuild (the only one with a script) is approved
+        # here, so the install is the same one a developer gets.
+        run: vp install --frozen-lockfile
+
+      - name: Format, lint and types
+        run: vp check
+
+      - name: Unit tests
+        run: vp test
+
+      - name: Build
+        run: vp build
+
+      - name: Find the browser
+        # The journeys drive the Chrome the runner already ships: no browser is
+        # ever downloaded. The path is exported for the two journeys below.
+        run: |
+          CHROME="$(command -v google-chrome || command -v chromium)"
+          echo "Chrome: $CHROME"
+          echo "CHROMIUM_PATH=$CHROME" >> "$GITHUB_ENV"
+
+      - name: Migrations
+        run: vp run api:migrate
+
+      - name: Demo journey
+        # Demo mode: no VITE_API_URL, so the app stays on the mock data.
+        run: vp exec node scripts/smoke-journey.mjs
+
+      - name: API journey
+        env:
+          # The web server the journey starts talks to the API it starts.
+          VITE_API_URL: http://localhost:3001
+        run: vp exec node scripts/smoke-api.mjs

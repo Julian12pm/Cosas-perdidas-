@@ -15,6 +15,12 @@
  * The script leaves nothing behind: it stops the servers it started and the
  * container it woke up (the volume stays).
  *
+ * The database is the one it is told to use: with `DATABASE_URL` in the
+ * environment the journey walks against that Postgres as it is — no podman,
+ * no container — and empties its own tables before it starts, so a second run
+ * starts from the same state. Without it, the journey brings up the Postgres 16
+ * of the compose file and stops it when it is done.
+ *
  * The web port is not 5173: on this machine that one belongs to another
  * project. The journey picks a free port of its own (override it with
  * APP_URL) and it makes sure the server it drives is THIS app before it
@@ -28,6 +34,7 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Pool } from 'pg';
 import { servesOurApp } from './smoke-journey.mjs';
 
 /* ─────────────────────────── Configuración ─────────────────────────── */
@@ -35,6 +42,14 @@ import { servesOurApp } from './smoke-journey.mjs';
 export const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const APP_URL = process.env.APP_URL ?? 'http://localhost:5199';
 const API_URL = process.env.API_URL ?? 'http://localhost:3001';
+/**
+ * El Postgres que camina el viaje.
+ *
+ * Con `DATABASE_URL` en el entorno ésa es la base de datos de alguien más (el
+ * servicio de CI, la del propio desarrollador): el viaje la usa tal cual y no
+ * toca ningún contenedor. Sin ella, el viaje levanta la de Compose.
+ */
+const EXTERNAL_DATABASE = Boolean(process.env.DATABASE_URL);
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/objetos_perdidos';
 const SHOTS_DIR = join(ROOT, '.e2e', 'screenshots');
@@ -81,6 +96,40 @@ async function isUp(url) {
   } catch {
     return false;
   }
+}
+
+/* ────────────────────────────── La base de datos ────────────────────────────── */
+
+/**
+ * La conexión al Postgres que camina el viaje.
+ *
+ * El mismo `pg` que usa el API: sin podman y sin `psql` dentro de un
+ * contenedor, así que la base de datos del desarrollador y el servicio de CI
+ * se tratan igual.
+ */
+let pool = null;
+
+function db() {
+  if (!pool) {
+    pool = new Pool({ connectionString: DATABASE_URL, max: 2, connectionTimeoutMillis: 5000 });
+    // Un cliente ocioso que muere no debe tumbar el proceso.
+    pool.on('error', (error) => console.error('Postgres pool error:', error.message));
+  }
+  return pool;
+}
+
+/** Espera a que la base de datos acepte conexiones. */
+async function waitForDatabase(timeout = BOOT_TIMEOUT_MS) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      await db().query('select 1');
+      return true;
+    } catch {
+      await sleep(500);
+    }
+  }
+  throw new Error(`La base de datos ${DATABASE_URL} no aceptó conexiones a tiempo`);
 }
 
 /* ──────────────────────────── El stack ──────────────────────────── */
@@ -156,23 +205,18 @@ async function runMigrations() {
  * La base de datos empieza limpia: el volumen sobrevive a las corridas y un
  * recorrido que encuentra los pines de la corrida anterior no prueba nada.
  * El catálogo de zonas se queda: lo siembra el API desde el archivo generado.
+ *
+ * La misma limpieza sirve para la base de datos ajena (la del servicio de CI):
+ * el viaje vacía sus propias tablas y nada más, así que la segunda corrida
+ * empieza desde el mismo estado.
  */
 async function resetDatabase() {
-  const name = await dbContainerName();
-  if (!name) return;
-  const result = await run('podman', [
-    'exec',
-    name,
-    'psql',
-    '-U',
-    'postgres',
-    '-d',
-    'objetos_perdidos',
-    '-c',
-    'truncate reports, claim_requests, report_matches, custody_events, strikes, bans, audit_log, notifications, sessions, magic_links, users restart identity cascade;',
-  ]);
-  if (result.code !== 0) {
-    throw new Error(`No se pudo limpiar la base de datos:\n${result.output}`);
+  try {
+    await db().query(
+      'truncate reports, claim_requests, report_matches, custody_events, strikes, bans, audit_log, notifications, sessions, magic_links, users restart identity cascade;',
+    );
+  } catch (error) {
+    throw new Error(`No se pudo limpiar la base de datos: ${error.message}`);
   }
 }
 
@@ -209,14 +253,16 @@ function startApi() {
 
   const stop = async () => {
     if (child.exitCode !== null) return;
+    const pid = child.pid;
+    if (pid === undefined) return;
     try {
-      process.kill(-child.pid, 'SIGTERM');
+      process.kill(-pid, 'SIGTERM');
     } catch {
       /* el grupo ya no existe */
     }
     await sleep(800);
     try {
-      process.kill(-child.pid, 'SIGKILL');
+      process.kill(-pid, 'SIGKILL');
     } catch {
       /* ya estaba muerto */
     }
@@ -248,14 +294,16 @@ function startWeb() {
 
   const stop = async () => {
     if (child.exitCode !== null) return;
+    const pid = child.pid;
+    if (pid === undefined) return;
     try {
-      process.kill(-child.pid, 'SIGTERM');
+      process.kill(-pid, 'SIGTERM');
     } catch {
       /* el grupo ya no existe */
     }
     await sleep(800);
     try {
-      process.kill(-child.pid, 'SIGKILL');
+      process.kill(-pid, 'SIGKILL');
     } catch {
       /* ya estaba muerto */
     }
@@ -451,22 +499,8 @@ async function publishReport(page, { kind, item, description, blindDetail, zoneI
 
 /** Lo que el API tiene en la base de datos, como texto. */
 async function query(sql) {
-  const name = await dbContainerName();
-  if (!name) return '';
-  const result = await run('podman', [
-    'exec',
-    name,
-    'psql',
-    '-U',
-    'postgres',
-    '-d',
-    'objetos_perdidos',
-    '-P',
-    'pager=off',
-    '-c',
-    sql,
-  ]);
-  return result.output.trim();
+  const result = await db().query(sql);
+  return result.rows.map((row) => Object.values(row).join(' | ')).join('\n');
 }
 
 /* ───────────────────────────────── Main ───────────────────────────────── */
@@ -484,9 +518,16 @@ async function main() {
   }
 
   console.log('▌ Levantando el stack real: Postgres 16, el API y la web…');
-  await ensureImage();
-  const container = await startDatabase();
-  console.log(`  · Postgres arriba en ${container}`);
+  if (EXTERNAL_DATABASE) {
+    // La base de datos es de alguien más (el servicio de CI): se usa tal
+    // cual y no se levanta ningún contenedor.
+    console.log(`  · Base de datos de fuera (${DATABASE_URL}): sin contenedores`);
+    await waitForDatabase();
+  } else {
+    await ensureImage();
+    const container = await startDatabase();
+    console.log(`  · Postgres arriba en ${container}`);
+  }
   const migrations = await runMigrations();
   console.log(`  · Migraciones: ${migrations}`);
   await resetDatabase();
@@ -806,8 +847,12 @@ async function main() {
   } finally {
     await web.stop();
     await api.stop();
-    // El contenedor se detiene; el volumen se queda.
-    await run('podman', ['compose', 'stop', 'db']);
+    // El contenedor se detiene; el volumen se queda. La base de datos de
+    // fuera se deja como estaba: sólo se vaciaron sus tablas al empezar.
+    if (!EXTERNAL_DATABASE) {
+      await run('podman', ['compose', 'stop', 'db']);
+    }
+    await pool?.end();
   }
 
   printReport();
@@ -844,10 +889,13 @@ function printReport() {
 
 const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
 if (isMain) {
-  main().catch((error) => {
+  main().catch(async (error) => {
     console.error('\nLa prueba falló antes de terminar:');
     console.error(error);
     printReport();
+    // La conexión se cierra aquí también: un fallo temprano no debe dejar al
+    // proceso esperando a la base de datos.
+    await pool?.end();
     process.exitCode = 1;
   });
 }
