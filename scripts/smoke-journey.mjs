@@ -24,8 +24,10 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { PNG } from 'pngjs';
 import {
   LIGHT,
+  artworkToPercent,
   extrudePolygon,
   heightFor,
   pointInPolygon,
@@ -67,6 +69,23 @@ const LOST_DESCRIPTION = 'La dejé en el pasillo del edificio A, junto al banco 
 const FOUND_ITEM = 'Botella metálica con grabados';
 const FOUND_DESCRIPTION = 'Estaba junto a la fuente del patio central.';
 const FOUND_BLIND = 'Verde esmeralda, abolladura en la base, dentro un boleto del cine.';
+
+/** Los dos reportes que se apilan en la misma zona (T24). */
+const CLUSTER_LOST_ITEM = 'Estuche de lápices de la clase de dibujo';
+const CLUSTER_LOST_DESCRIPTION = 'Lo dejé en el banco de la entrada del edificio A.';
+const CLUSTER_FOUND_ITEM = 'Termo de acero con una calcomanía';
+const CLUSTER_FOUND_DESCRIPTION = 'Estaba encima de una mesa del pasillo del edificio A.';
+const CLUSTER_FOUND_BLIND = 'Acero gris, calcomanía verde en un lado, tapa con una rayadura.';
+
+/**
+ * El recuadro "DATOS GENERALES" del plano oficial: su propia leyenda, con
+ * las muestras de color del plan. La app tiene un panel de nombres, así que
+ * el recuadro no debe quedar pintado en el arte.
+ */
+const DATOS_GENERALES_BOX = { x: 45, y: 515, width: 175, height: 95 };
+
+/** El fondo de la página: con el que el generador tapa la leyenda del plano. */
+const PAGE_GROUND = [0x0f, 0x12, 0x19];
 
 /** Hallazgos sobre la app que la prueba descubre (no son fallos del recorrido). */
 const findings = [];
@@ -311,6 +330,13 @@ async function pinSize(page) {
 
 /** Los pines del mapa (los botones con nombre accesible "Pin perdido/encontrado"). */
 const pinCount = (page) => page.locator('button[aria-label^="Pin "]').count();
+
+/** Los grupos del mapa: un marcador por zona con más de un reporte. */
+const clusterCount = (page) => page.locator('button[data-testid^="pin-cluster-marker-"]').count();
+
+/** Los marcadores del mapa: los pines sueltos y los grupos. */
+const markerCount = (page) =>
+  page.locator('button[aria-label^="Pin "], button[data-testid^="pin-cluster-marker-"]').count();
 
 /**
  * Comprueba que la acción principal de un diálogo es alcanzable: visible, dentro
@@ -832,6 +858,144 @@ async function runJourney(browser, viewport) {
         `las zonas y los pines quedan bajo touch-action: none (cadena: ${JSON.stringify(zoneTouch)}): un deslizamiento vertical que empieza sobre una zona mueve el croquis en vez de desplazar la página. Fuera de las zonas el croquis sí deja desplazar`,
       );
     }
+
+    /* ── 2d. La leyenda del campus: el panel que sustituye al plano ──── */
+    // El plano oficial traía su leyenda impresa en la propia imagen (y su
+    // columna, la que la app ya no muestra): la app la tiene como panel, con
+    // su encabezado, su buscador y el enlace al plano original.
+    const legendToggle = page.locator(t('zone-legend-toggle'));
+    if (await legendToggle.isVisible()) await legendToggle.click();
+
+    const legend = await page.evaluate(() => {
+      const panel = document.querySelector('[data-testid="zone-legend"]');
+      const heading = panel?.querySelector('h2');
+      const search = panel?.querySelector('[data-testid="zone-legend-search"]');
+      const searchLabel = search ? document.querySelector(`label[for="${search.id}"]`) : null;
+      const link = panel?.querySelector('[data-testid="original-plan-link"]');
+      return {
+        exists: Boolean(panel),
+        heading: heading?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+        search: Boolean(search),
+        searchLabel: searchLabel?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+        link: Boolean(link),
+        linkHref: link?.getAttribute('href') ?? '',
+        linkText: link?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+      };
+    });
+    record(
+      vp,
+      'el croquis tiene su panel de nombres',
+      legend.exists,
+      '1 panel zone-legend',
+      legend.exists ? 'el panel está' : 'no se encontró el panel',
+    );
+    record(
+      vp,
+      'el panel de nombres tiene su encabezado',
+      legend.heading === 'Nombres del campus',
+      '"Nombres del campus"',
+      legend.heading || 'sin encabezado',
+    );
+    record(
+      vp,
+      'el panel de nombres tiene su buscador con su etiqueta',
+      legend.search && legend.searchLabel.length > 0,
+      'un campo zone-legend-search con etiqueta',
+      `campo=${legend.search} etiqueta="${legend.searchLabel}"`,
+    );
+    record(
+      vp,
+      'el panel de nombres ofrece el plano original',
+      legend.link && legend.linkHref === '/mapa-itm.png',
+      'un enlace original-plan-link a /mapa-itm.png',
+      `enlace=${legend.link} href=${legend.linkHref || 'ninguno'}`,
+    );
+    record(
+      vp,
+      'el enlace al plano original se lee como una referencia',
+      legend.linkText.toLowerCase().includes('plano original'),
+      '"plano original"',
+      legend.linkText || 'sin texto',
+    );
+
+    // La leyenda dice lo que el croquis NO dibuja: las calles vienen del
+    // plano oficial y los nombres viven aquí.
+    const legendText = await textOf(page, t('zone-legend'));
+    record(
+      vp,
+      'la leyenda dice lo que el croquis no dibuja',
+      /calles/i.test(legendText) && /nombres/i.test(legendText),
+      'menciona las calles y los nombres',
+      legendText.slice(0, 200),
+    );
+
+    // El buscador de la leyenda: "cafetería" deja una sola fila.
+    await page.locator(t('zone-legend-search')).fill('cafetería');
+    await page.waitForFunction(
+      () => document.querySelectorAll('[data-testid="zone-legend"] li').length === 1,
+    );
+    const legendRows = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="zone-legend"] li')].map((row) => ({
+        id: row.querySelector('button')?.getAttribute('data-testid') ?? '',
+        text: row.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+      })),
+    );
+    record(
+      vp,
+      'buscar "cafetería" deja sólo la fila de la cafetería',
+      legendRows.length === 1 && legendRows[0].id === 'zone-legend-bldg-r',
+      '1 fila: zone-legend-bldg-r',
+      JSON.stringify(legendRows),
+    );
+    record(
+      vp,
+      'la fila que sobrevive a la búsqueda es la de R',
+      legendRows[0]?.text.includes('Cafetería'),
+      'la fila menciona "Cafetería"',
+      legendRows[0]?.text ?? 'ninguna fila',
+    );
+    await page.locator(t('zone-legend-search')).fill('');
+    await take('legend', 13);
+    // La leyenda está más abajo que el croquis: al leerla la página se
+    // desplazó, y el croquis tiene que volver a su sitio para que el ratón
+    // lo alcance.
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    /* ── 2e. El arte que sirve la app no trae la leyenda del plano ──── */
+    // El arte que el servidor entrega: el recuadro "DATOS GENERALES" con sus
+    // muestras de color no debe quedar, porque la app tiene su propia
+    // leyenda y dos leyendas se contradicen.
+    const servedArtwork = await fetch(`${APP_URL}/mapa-itm-dark.png`)
+      .then((response) => response.arrayBuffer())
+      .then((buffer) => PNG.sync.read(Buffer.from(buffer)));
+    let boxPainted = 0;
+    for (
+      let y = DATOS_GENERALES_BOX.y;
+      y < DATOS_GENERALES_BOX.y + DATOS_GENERALES_BOX.height;
+      y += 1
+    ) {
+      for (
+        let x = DATOS_GENERALES_BOX.x;
+        x < DATOS_GENERALES_BOX.x + DATOS_GENERALES_BOX.width;
+        x += 1
+      ) {
+        const i = (y * servedArtwork.width + x) * 4;
+        if (
+          servedArtwork.data[i] !== PAGE_GROUND[0] ||
+          servedArtwork.data[i + 1] !== PAGE_GROUND[1] ||
+          servedArtwork.data[i + 2] !== PAGE_GROUND[2]
+        ) {
+          boxPainted += 1;
+        }
+      }
+    }
+    record(
+      vp,
+      'el recuadro DATOS GENERALES no se pinta en el arte',
+      boxPainted === 0,
+      '0 píxeles ajenos al fondo de la página',
+      `${boxPainted} píxeles pintados en el recuadro`,
+    );
 
     /* ── 3. El croquis se puede acercar con la rueda ──────────────────── */
     // El acercamiento va primero: con el croquis entero dentro de la ventana
@@ -1950,6 +2114,172 @@ async function runJourney(browser, viewport) {
       `0 paneles state-error y ${SEED_PINS} pines`,
       `${await page.locator(t('state-error')).count()} panel(es), ${await pinCount(page)} pines`,
     );
+
+    /* ── 22. Dos reportes en la misma zona: un marcador con la cuenta ── */
+    // Los pines de una zona se apilan en su centro: el último pintado tapa
+    // al otro y el ratón sólo alcanza a uno. Una zona con más de un reporte
+    // se dibuja como UN marcador con la cuenta, y la lista de sus reportes
+    // se abre y se recorre con el ratón.
+    const clusterZone = ZONE_BY_ID.get('bldg-a');
+    const expected = artworkToPercent(polygonCentroid(clusterZone.polygon), MAP_IMAGE);
+
+    const publishInClusterZone = async (kind) => {
+      await page.locator(t('picker-input')).click();
+      await page.locator(t('picker-option-bldg-a')).click();
+      await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
+      await page
+        .getByRole('button', { name: kind === 'lost' ? /Perdí algo aquí/ : /Encontré algo aquí/ })
+        .click();
+      await page.locator(t('report-item')).waitFor({ state: 'visible' });
+      await page
+        .locator(t('report-item'))
+        .fill(kind === 'lost' ? CLUSTER_LOST_ITEM : CLUSTER_FOUND_ITEM);
+      await page
+        .locator(t('report-description'))
+        .fill(kind === 'lost' ? CLUSTER_LOST_DESCRIPTION : CLUSTER_FOUND_DESCRIPTION);
+      if (kind === 'found') await page.locator(t('report-blind-detail')).fill(CLUSTER_FOUND_BLIND);
+      await page.locator(t('report-submit')).click();
+      await page
+        .locator(t('release-key-dialog'))
+        .waitFor({ state: 'visible' })
+        .catch(() => {});
+      await page.keyboard.press('Escape');
+      await page
+        .locator(t('release-key-dialog'))
+        .waitFor({ state: 'detached' })
+        .catch(() => {});
+    };
+
+    await publishInClusterZone('lost');
+    record(
+      vp,
+      'un reporte en una zona se dibuja como un pin suelto',
+      (await clusterCount(page)) === 0 && (await pinCount(page)) === SEED_PINS + 1,
+      '0 grupos y 5 pines',
+      `${await clusterCount(page)} grupo(s), ${await pinCount(page)} pine(s)`,
+    );
+
+    await publishInClusterZone('found');
+    const clusterMarkers = page.locator('button[data-testid^="pin-cluster-marker-"]');
+    const clusterMarkersCount = await clusterMarkers.count();
+    record(
+      vp,
+      'una zona con dos reportes se dibuja con UN marcador',
+      clusterMarkersCount === 1,
+      '1 marcador de grupo',
+      `${clusterMarkersCount} marcador(es)`,
+    );
+    record(
+      vp,
+      'los dos reportes de la zona no se apilan en dos pines',
+      (await pinCount(page)) === SEED_PINS && (await markerCount(page)) === SEED_PINS + 1,
+      `${SEED_PINS} pines y ${SEED_PINS + 1} marcadores`,
+      `${await pinCount(page)} pine(s), ${await markerCount(page)} marcador(es)`,
+    );
+
+    if (clusterMarkersCount === 1) {
+      const clusterName = await clusterMarkers.first().getAttribute('aria-label');
+      record(
+        vp,
+        'el marcador del grupo tiene un nombre accesible',
+        clusterName === '2 objetos reportados en A · Edificio Administrativo',
+        '"2 objetos reportados en A · Edificio Administrativo"',
+        clusterName ?? 'sin nombre accesible',
+      );
+      const clusterBadge = await page.locator(t('pin-cluster-count')).innerText();
+      record(
+        vp,
+        'el marcador del grupo lleva la cuenta de sus reportes',
+        clusterBadge.trim() === '2',
+        'la cuenta "2"',
+        clusterBadge.trim(),
+      );
+      const clusterSpot = await clusterMarkers.first().evaluate((node) => ({
+        left: node.style.left,
+        top: node.style.top,
+      }));
+      record(
+        vp,
+        'el marcador del grupo se queda en el centro de la zona',
+        Math.abs(parseFloat(clusterSpot.left) - expected.x) <= 0.05 &&
+          Math.abs(parseFloat(clusterSpot.top) - expected.y) <= 0.05,
+        `(${expected.x.toFixed(2)}%, ${expected.y.toFixed(2)}%)`,
+        `(${clusterSpot.left}, ${clusterSpot.top})`,
+      );
+
+      // La lista del grupo: se abre con el ratón y cada reporte se alcanza
+      // con el ratón.
+      await clusterMarkers.first().click();
+      await page.locator(t('pin-cluster-dialog')).waitFor({ state: 'visible' });
+      const clusterEntries = page.locator('[data-testid^="pin-cluster-entry-"]');
+      record(
+        vp,
+        'el grupo abre la lista de sus reportes',
+        (await clusterEntries.count()) === 2,
+        '2 entradas en la lista',
+        `${await clusterEntries.count()} entrada(s)`,
+      );
+      const clusterListText = (await textOf(page, t('pin-cluster-dialog'))).replace(/\s+/g, ' ');
+      record(
+        vp,
+        'la lista dice el objeto, el tipo y la antigüedad de cada reporte',
+        clusterListText.includes(CLUSTER_LOST_ITEM) &&
+          clusterListText.includes(CLUSTER_FOUND_ITEM) &&
+          /Perdido/.test(clusterListText) &&
+          /Encontrado/.test(clusterListText) &&
+          /Hace/.test(clusterListText),
+        'los dos objetos, "Perdido", "Encontrado" y "Hace ..."',
+        clusterListText.slice(0, 200),
+      );
+      await take('cluster', 14);
+
+      await clusterEntries.filter({ hasText: CLUSTER_LOST_ITEM }).click();
+      await page.locator(t('pin-cluster-dialog')).waitFor({ state: 'detached' });
+      await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
+      const clusterDetail = await textOf(page, '[role="dialog"]');
+      record(
+        vp,
+        'un reporte del grupo se abre con el ratón',
+        clusterDetail.includes(CLUSTER_LOST_ITEM),
+        `el diálogo dice "${CLUSTER_LOST_ITEM}"`,
+        clusterDetail.slice(0, 140),
+      );
+      await page.keyboard.press('Escape');
+      await page.locator('[role="dialog"]').waitFor({ state: 'detached' });
+
+      await clusterMarkers.first().click();
+      await page.locator(t('pin-cluster-dialog')).waitFor({ state: 'visible' });
+      await clusterEntries.filter({ hasText: CLUSTER_FOUND_ITEM }).click();
+      await page.locator(t('pin-cluster-dialog')).waitFor({ state: 'detached' });
+      await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
+      const clusterDetail2 = await textOf(page, '[role="dialog"]');
+      record(
+        vp,
+        'el otro reporte del grupo también se abre con el ratón',
+        clusterDetail2.includes(CLUSTER_FOUND_ITEM),
+        `el diálogo dice "${CLUSTER_FOUND_ITEM}"`,
+        clusterDetail2.slice(0, 140),
+      );
+      await page.keyboard.press('Escape');
+      await page.locator('[role="dialog"]').waitFor({ state: 'detached' });
+
+      // Y la lista se alcanza con el teclado: el foco entra en ella.
+      await clusterMarkers.first().focus();
+      await page.keyboard.press('Enter');
+      await page.locator(t('pin-cluster-dialog')).waitFor({ state: 'visible' });
+      const focusedEntry = await page.evaluate(
+        () => document.activeElement?.getAttribute('data-testid') ?? '',
+      );
+      record(
+        vp,
+        'la lista del grupo se alcanza con el teclado',
+        focusedEntry.startsWith('pin-cluster-entry-'),
+        'el foco entra en la primera entrada',
+        focusedEntry || 'el foco no está en la lista',
+      );
+      await page.keyboard.press('Escape');
+      await page.locator(t('pin-cluster-dialog')).waitFor({ state: 'detached' });
+    }
 
     return { screenshots };
   } finally {
