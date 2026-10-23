@@ -80,10 +80,10 @@ jobs:
 
       - name: Demo journey
         # Demo mode: no VITE_API_URL, so the app stays on the mock data.
-        run: vp exec node scripts/smoke-journey.mjs
+        run: vp exec node scripts/smoke-journey.ts
 
       - name: API journey
         env:
           # The web server the journey starts talks to the API it starts.
           VITE_API_URL: http://localhost:3001
-        run: vp exec node scripts/smoke-api.mjs
+        run: vp exec node scripts/smoke-api.ts
