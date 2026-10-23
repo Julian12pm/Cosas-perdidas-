@@ -436,6 +436,11 @@ export default function CampusMap({
         shapes.forEach((shape, index) => flats.push({ key: `${zone.id}-${index}`, shape }));
         continue;
       }
+      // The athletics track is NOT painted as a flat zone: its polygon is
+      // the box around the oval, not the oval, and filling it would erase
+      // the infield. The raster paints the track, because the raster draws
+      // the oval of the plan.
+      if (zone.kind === 'track') continue;
       if (zone.kind !== 'building') continue;
 
       const height = heightFor(zone);

@@ -306,12 +306,31 @@ async function textOf(page, selector) {
 /** Los pines que hay en el mapa. */
 const pinCount = (page) => page.locator('button[aria-label^="Pin "]').count();
 
-/** Espera a que el mapa tenga ese número de pines. */
-async function waitForPins(page, expected, timeout = STEP_TIMEOUT_MS) {
+/** Los grupos del mapa: un marcador por zona con más de un reporte. */
+const clusterCount = (page) => page.locator('button[data-testid^="pin-cluster-marker-"]').count();
+
+/** Los marcadores del mapa: los pines sueltos y los grupos. */
+const markerCount = (page) =>
+  page.locator('button[aria-label^="Pin "], button[data-testid^="pin-cluster-marker-"]').count();
+
+/** Espera a que el mapa tenga ese número de grupos (un grupo por zona con varios reportes). */
+async function waitForClusters(page, expected, timeout = STEP_TIMEOUT_MS) {
   const deadline = Date.now() + timeout;
   let seen = 0;
   while (Date.now() < deadline) {
-    seen = await pinCount(page);
+    seen = await clusterCount(page);
+    if (seen === expected) return seen;
+    await sleep(150);
+  }
+  return seen;
+}
+
+/** Espera a que el mapa tenga ese número de marcadores. */
+async function waitForMarkers(page, expected, timeout = STEP_TIMEOUT_MS) {
+  const deadline = Date.now() + timeout;
+  let seen = 0;
+  while (Date.now() < deadline) {
+    seen = await markerCount(page);
     if (seen === expected) return seen;
     await sleep(150);
   }
@@ -607,18 +626,48 @@ async function main() {
       });
 
       await finder.locator(t('release-key-dialog')).waitFor({ state: 'detached' });
-      const finderPins = await waitForPins(finder, 2);
+      const finderMarkers = await waitForMarkers(finder, 1);
+      const finderClusters = await waitForClusters(finder, 1);
       record(
-        'el reporte de hallazgo se publica y suma su pin',
-        finderPins === 2,
-        '2 pines en el mapa',
-        `${finderPins} pin(es)`,
+        'el reporte de hallazgo se publica y se agrupa con el otro de su zona',
+        finderMarkers === 1 && finderClusters === 1,
+        '1 marcador (un grupo) en el mapa',
+        `${finderMarkers} marcador(es), ${finderClusters} grupo(s)`,
+      );
+      const clusterMarker = finder.locator('button[data-testid^="pin-cluster-marker-"]');
+      const clusterName = await clusterMarker.getAttribute('aria-label');
+      record(
+        'el grupo tiene un nombre accesible que dice cuántos y dónde',
+        clusterName === '2 objetos reportados en E · Aulas y Taller de Dibujo',
+        '"2 objetos reportados en E · Aulas y Taller de Dibujo"',
+        clusterName ?? 'sin nombre accesible',
+      );
+      const clusterBadge = await finder.locator(t('pin-cluster-count')).innerText();
+      record(
+        'el grupo lleva la cuenta de sus reportes',
+        clusterBadge.trim() === '2',
+        'la cuenta "2"',
+        clusterBadge.trim(),
       );
       screenshots.push(join(SHOTS_DIR, 'api-04-found-report.png'));
       await finder.screenshot({ path: screenshots.at(-1) });
 
       /* ── 4. El reclamo: el dato ciego y el enlace con el hallazgo ─────── */
-      await finder.locator(`button[aria-label^="Pin perdido: ${OWNER_ITEM}"]`).click();
+      // Los dos reportes viven en la misma zona, así que el mapa los muestra
+      // como un solo marcador con la cuenta: el grupo se abre y cada reporte
+      // se alcanza con el ratón.
+      await clusterMarker.click();
+      await finder.locator(t('pin-cluster-dialog')).waitFor({ state: 'visible' });
+      const clusterEntries = finder.locator('[data-testid^="pin-cluster-entry-"]');
+      record(
+        'el grupo abre la lista de los dos reportes',
+        (await clusterEntries.count()) === 2,
+        '2 entradas en la lista',
+        `${await clusterEntries.count()} entrada(s)`,
+      );
+      screenshots.push(join(SHOTS_DIR, 'api-04c-cluster-list.png'));
+      await finder.screenshot({ path: screenshots.at(-1) });
+      await clusterEntries.filter({ hasText: OWNER_ITEM }).click();
       await finder.locator(t('claim-open')).waitFor({ state: 'visible' });
       screenshots.push(join(SHOTS_DIR, 'api-05-claim-open.png'));
       await finder.screenshot({ path: screenshots.at(-1) });
@@ -685,10 +734,12 @@ async function main() {
 
       /* ── 6. La entrega: la clave que dictó el dueño ──────────────────── */
       await finder.getByRole('button', { name: 'Mapa', exact: true }).click();
-      // Los dos reportes viven en la misma zona, así que sus pines se pisan:
-      // el ratón sólo alcanza el de arriba. El teclado sí llega al de abajo,
-      // que es el del hallazgo (la app anuncia el recorrido con el teclado).
-      await finder.locator(`button[aria-label^="Pin encontrado: ${FINDER_ITEM}"]`).press('Enter');
+      // Los dos reportes viven en la misma zona: el mapa los muestra como un
+      // marcador con la cuenta, y el del hallazgo se alcanza con el ratón a
+      // través de la lista del grupo.
+      await finder.locator('button[data-testid^="pin-cluster-marker-"]').click();
+      await finder.locator(t('pin-cluster-dialog')).waitFor({ state: 'visible' });
+      await finder.locator('[data-testid^="pin-cluster-entry-"]', { hasText: FINDER_ITEM }).click();
       await finder.locator(t('release-key-input')).waitFor({ state: 'visible' });
       await finder.locator(t('release-key-input')).fill(releaseKey);
       screenshots.push(join(SHOTS_DIR, 'api-09-release-key-input.png'));
@@ -700,11 +751,12 @@ async function main() {
       await finder.reload({ waitUntil: 'load' });
       await finder.locator('header').waitFor({ state: 'visible' });
       const afterPins = await pinCount(finder);
+      const afterMarkers = await markerCount(finder);
       record(
         'los pines salen del mapa cuando la entrega se confirma',
-        afterPins === 0,
-        '0 pines en el mapa',
-        `${afterPins} pin(es)`,
+        afterPins === 0 && afterMarkers === 0,
+        '0 pines y 0 grupos en el mapa',
+        `${afterPins} pin(es), ${afterMarkers} marcador(es)`,
       );
       screenshots.push(join(SHOTS_DIR, 'api-10-after-delivery.png'));
       await finder.screenshot({ path: screenshots.at(-1) });

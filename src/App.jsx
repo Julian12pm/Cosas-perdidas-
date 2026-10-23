@@ -18,6 +18,7 @@ import LoginScreen from './components/LoginScreen.jsx';
 import Modal from './components/Modal.jsx';
 import MyReports from './components/MyReports.jsx';
 import OfflineBanner from './components/OfflineBanner.jsx';
+import PinCluster, { PinClusterList, clusterByZone } from './components/PinCluster.jsx';
 import ReportForm from './components/ReportForm.jsx';
 import ZoneLegend from './components/ZoneLegend.jsx';
 import ZonePicker from './components/ZonePicker.jsx';
@@ -880,6 +881,8 @@ export default function App() {
   const [actionError, setActionError] = useState('');
   // La zona que la leyenda está iluminando en el croquis.
   const [highlightZoneId, setHighlightZoneId] = useState(null);
+  // El grupo del mapa que está abierto: una zona con más de un reporte.
+  const [clusterZoneId, setClusterZoneId] = useState(null);
   const online = useOnline();
   // Sin señal del navegador o sin respuesta del API: no hay nada fresco.
   const isOffline = !online || apiOffline;
@@ -1377,6 +1380,29 @@ export default function App() {
     [reports],
   );
 
+  // Los reportes del mapa, agrupados por zona: una zona con varios reportes
+  // se dibuja como un marcador con la cuenta, no como pines apilados.
+  const mapGroups = useMemo(() => clusterByZone(mapReports), [mapReports]);
+
+  const openCluster = useCallback((zoneId) => setClusterZoneId(zoneId), []);
+  const closeCluster = useCallback(() => setClusterZoneId(null), []);
+
+  const clusterGroup = useMemo(
+    () =>
+      mapGroups.find((group) => group.zoneId === clusterZoneId && group.reports.length > 1) ?? null,
+    [mapGroups, clusterZoneId],
+  );
+
+  // Un reporte del grupo abre su detalle: la lista se cierra en el mismo
+  // paso, para que no queden dos diálogos encima.
+  const openReportFromCluster = useCallback(
+    (report) => {
+      setClusterZoneId(null);
+      handlePinClick(report);
+    },
+    [handlePinClick],
+  );
+
   const myReports = useMemo(
     () => reports.filter((report) => report.ownerId === session?.id),
     [reports, session],
@@ -1543,9 +1569,17 @@ export default function App() {
                   empty={mapReports.length === 0}
                   offline={!online}
                 >
-                  {mapReports.map((report) => (
-                    <MapPin key={report.id} report={report} onClick={handlePinClick} />
-                  ))}
+                  {mapGroups.map((group) =>
+                    group.reports.length === 1 ? (
+                      <MapPin
+                        key={group.reports[0].id}
+                        report={group.reports[0]}
+                        onClick={handlePinClick}
+                      />
+                    ) : (
+                      <PinCluster key={group.zoneId} group={group} onOpen={openCluster} />
+                    ),
+                  )}
 
                   {pending && <PendingMarker point={pending} />}
                 </CampusMap>
@@ -1621,6 +1655,13 @@ export default function App() {
       )}
       {modal?.kind === 'release-key' && (
         <ReleaseKeyModal report={modal.report} onClose={closeModal} />
+      )}
+      {clusterGroup && (
+        <PinClusterList
+          group={clusterGroup}
+          onClose={closeCluster}
+          onOpenReport={openReportFromCluster}
+        />
       )}
       {infoReport && (
         <PinInfoModal
