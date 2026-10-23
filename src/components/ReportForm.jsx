@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import { PinIcon } from '@solar-icons/react/bold/pin';
-import { reporterAlias } from '../data.js';
+import { reporterAlias } from '../data.ts';
 
 /*
  * El formulario de reporte sirve para los dos pines: el rojo y el verde. Lo

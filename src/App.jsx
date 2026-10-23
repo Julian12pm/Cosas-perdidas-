@@ -45,7 +45,7 @@ import {
   loadCampusData,
   reporterAlias,
   reportFromApi,
-} from './data.js';
+} from './data.ts';
 import { artworkToPercent, polygonCentroid, zoneAtPoint } from './map/geometry.ts';
 import { MAP_IMAGE, ZONES } from './map/zones.ts';
 

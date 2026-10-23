@@ -2,7 +2,7 @@ import { useState } from 'react';
 import Modal from './Modal.jsx';
 import ContactCard from './ContactCard.jsx';
 import { EmptyState, ErrorState, LoadingState } from './StateMessage.jsx';
-import { UNKNOWN_STATUS_LABEL, formatAge } from '../data.js';
+import { UNKNOWN_STATUS_LABEL, formatAge } from '../data.ts';
 
 /*
  * La bandeja de reclamos: lo que los demás piden contra tus reportes y lo que

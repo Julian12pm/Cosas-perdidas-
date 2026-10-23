@@ -1,7 +1,7 @@
 import { CheckCircleIcon } from '@solar-icons/react/bold/check-circle';
 import { QuestionCircleIcon } from '@solar-icons/react/bold/question-circle';
 import Modal from './Modal.jsx';
-import { formatAge } from '../data.js';
+import { formatAge } from '../data.ts';
 import { artworkToPercent, polygonCentroid } from '../map/geometry.ts';
 import { MAP_IMAGE, ZONE_BY_ID } from '../map/zones.ts';
 
