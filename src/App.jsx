@@ -11,7 +11,7 @@ import { MapPointIcon } from '@solar-icons/react/bold/map-point';
 import { QuestionCircleIcon } from '@solar-icons/react/bold/question-circle';
 import { ShieldCheckIcon } from '@solar-icons/react/bold/shield-check';
 import { UserIcon } from '@solar-icons/react/bold/user';
-import CampusMap from './components/CampusMap.jsx';
+import CampusMap from './components/CampusMap.tsx';
 import ClaimInbox from './components/ClaimInbox.tsx';
 import ContactCard from './components/ContactCard.tsx';
 import LoginScreen from './components/LoginScreen.tsx';
