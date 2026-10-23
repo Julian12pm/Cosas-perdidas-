@@ -5,8 +5,6 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "allowJs": true,
-    "checkJs": false,
     "noEmit": true,
     "strict": true,
     "skipLibCheck": true,
@@ -14,7 +12,19 @@
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": true
+    "noUnusedParameters": true,
+    // Los tipos que entran solos: el cliente de Vite (import.meta.env) y los
+    // de Node (process, fs, los scripts).
+    "types": ["vite/client", "node"],
+    // Los importadores escriben la extensión real (.ts, .tsx): el bundler y
+    // Node (que quita los tipos al ejecutar los scripts) resuelven igual.
+    "allowImportingTsExtensions": true,
+    // Un import que sólo trae tipos se declara `import type`: es lo que
+    // permite a Node borrar los tipos sin dejar nada detrás.
+    "verbatimModuleSyntax": true,
+    // El código tiene que poder borrarse: sin enumeraciones, sin espacios de
+    // nombres, sin propiedades de constructor.
+    "erasableSyntaxOnly": true
   },
-  "include": ["src", "api", "vite.config.js"]
+  "include": ["src", "api", "scripts", "vite.config.ts"]
 }

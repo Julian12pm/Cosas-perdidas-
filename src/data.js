@@ -1,6 +1,6 @@
 import { MAP_IMAGE, ZONE_BY_ID } from './map/zones.js';
 import { artworkToPercent, polygonCentroid } from './map/geometry.js';
-import { getContactCard, getReport, isApiConfigured, listInbox, listReports } from './api.js';
+import { getContactCard, getReport, isApiConfigured, listInbox, listReports } from './api.ts';
 
 // Longitud de la clave de liberación: el dueño del objeto la dicta al
 // estudiante que lo tiene físicamente. Seis dígitos = un millón de combinaciones.

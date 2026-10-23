@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
-import { apiBaseUrl, isApiConfigured } from './api.js';
+import { apiBaseUrl, isApiConfigured } from './api.ts';
 import './index.css';
 
 /*
