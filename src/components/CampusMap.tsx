@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EmptyState, ErrorState, LoadingState } from './StateMessage.jsx';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { EmptyState, ErrorState, LoadingState } from './StateMessage.tsx';
 import {
   LIGHT,
   clampTransform,
@@ -17,7 +17,13 @@ import {
   zoneReadingOrder,
   zoneShapes,
   zoomAt,
+  type Fit,
+  type MapLimits,
+  type MapTransform,
+  type Origin,
+  type ZoneDirection,
 } from '../map/geometry.ts';
+import type { MapImage, Point, Polygon, Vertex, Zone } from '../types.ts';
 
 /*
  * El croquis es un SVG que la app dibuja: el raster oscuro del plan es el
@@ -56,10 +62,10 @@ const WHEEL_RATE = 0.0015;
 const LINE_HEIGHT = 16;
 
 /** The map starts unzoomed and centred. */
-const INITIAL_TRANSFORM = { scale: 1, x: 0, y: 0 };
+const INITIAL_TRANSFORM: MapTransform = { scale: 1, x: 0, y: 0 };
 
 /** The id an option carries, the one `aria-activedescendant` points at. */
-const optionId = (zone) => `map-zone-${zone.id}`;
+const optionId = (zone: Zone): string => `map-zone-${zone.id}`;
 
 /**
  * The tones of the relief, from the app's own ramp: the face that sees the
@@ -92,7 +98,7 @@ const TONES = {
 const CODE_PX = 13;
 
 /** The size of the code printed on a roof, in artwork units, at a scale. */
-function codeSize(scale) {
+function codeSize(scale: number): number {
   return CODE_PX / (scale > 0 ? scale : 1);
 }
 
@@ -100,7 +106,7 @@ function codeSize(scale) {
  * The tone of a wall: the one that looks sideways catches more of the sky
  * than the one that looks at the ground.
  */
-function wallTone(quad, safe) {
+function wallTone(quad: Polygon, safe: boolean): string {
   const [a, b] = quad;
   const sideways = Math.abs(b[0] - a[0]) <= Math.abs(b[1] - a[1]);
   if (safe) return sideways ? TONES.safeWallSide : TONES.safeWallDown;
@@ -108,8 +114,54 @@ function wallTone(quad, safe) {
 }
 
 /** How far a volume is from the light: the further, the earlier it is painted. */
-function depthOf(volume) {
+function depthOf(volume: Volume): number {
   return (volume.roof?.x ?? 0) + (volume.roof?.y ?? 0);
+}
+
+/** La geometría medida del croquis: dónde está la capa y qué límites tiene. */
+interface MapGeometry {
+  fit: Fit;
+  origin: Origin;
+  limits: MapLimits;
+}
+
+/** Un dedo sobre el croquis. */
+interface PointerSpot {
+  x: number;
+  y: number;
+}
+
+/** El gesto en curso: los dedos que están sobre el croquis y su deriva. */
+interface Gesture {
+  pointers: Map<number, PointerSpot>;
+  moved: boolean;
+  pinched: boolean;
+  start: PointerSpot;
+  last: PointerSpot;
+  startTarget: EventTarget | null;
+  startDistance: number;
+  startMidpoint: PointerSpot;
+  startTransform: MapTransform;
+  geometry: MapGeometry;
+}
+
+/** Un volumen del relieve: una pieza de una construcción, de pie. */
+interface Volume {
+  key: string;
+  zone: Zone;
+  shape: Polygon;
+  top: Vertex[];
+  sides: Polygon[];
+  shadow: Vertex[];
+  main: boolean;
+  roof: Point | null;
+  codeSize: number;
+}
+
+/** Una zona plana: los estacionamientos, sin altura. */
+interface Flat {
+  key: string;
+  shape: Polygon;
 }
 
 export default function CampusMap({
@@ -121,21 +173,30 @@ export default function CampusMap({
   children,
   empty = false,
   offline = false,
+}: {
+  zones?: Zone[];
+  image?: MapImage;
+  onSelectZone?: (zone: Zone | null) => void;
+  onPick?: (point: Point) => void;
+  highlightZoneId?: string | null;
+  children?: ReactNode;
+  empty?: boolean;
+  offline?: boolean;
 }) {
-  const wrapperRef = useRef(null);
-  const stageRef = useRef(null);
-  const zoneRefs = useRef(new Map());
-  const transformRef = useRef(INITIAL_TRANSFORM);
-  const gestureRef = useRef(null);
-  const cleanupRef = useRef(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const zoneRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const transformRef = useRef<MapTransform>(INITIAL_TRANSFORM);
+  const gestureRef = useRef<Gesture | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
   const dragRef = useRef(false);
 
-  const [fit, setFit] = useState(null);
-  const [transform, setTransform] = useState(INITIAL_TRANSFORM);
-  const [activeId, setActiveId] = useState(null);
-  const [selectedId, setSelectedId] = useState(null);
+  const [fit, setFit] = useState<Fit | null>(null);
+  const [transform, setTransform] = useState<MapTransform>(INITIAL_TRANSFORM);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   // El croquis es un archivo: se descarga, se dibuja y a veces no llega.
-  const [raster, setRaster] = useState('loading');
+  const [raster, setRaster] = useState<'loading' | 'ready' | 'error'>('loading');
   const [attempt, setAttempt] = useState(0);
 
   /** The artwork of the plan: the same coordinate space as the catalogue. */
@@ -146,7 +207,7 @@ export default function CampusMap({
   const rasterSrc = image?.src ?? '/mapa-itm-dark.png';
 
   /** Replaces the transform and keeps the ref in sync with the state. */
-  const applyTransform = useCallback((compute) => {
+  const applyTransform = useCallback((compute: (current: MapTransform) => MapTransform) => {
     const next = compute(transformRef.current);
     transformRef.current = next;
     setTransform(next);
@@ -156,7 +217,7 @@ export default function CampusMap({
    * The ground of the croquis: the SVG's `<image>` fires load and error, so
    * the croquis still knows when the artwork arrived and when it did not.
    */
-  const attachGround = useCallback((node) => {
+  const attachGround = useCallback((node: SVGImageElement | null) => {
     if (!node) return;
     node.addEventListener('load', () => setRaster('ready'));
     node.addEventListener('error', () => setRaster('error'));
@@ -171,7 +232,7 @@ export default function CampusMap({
    * put while the zoom grows. Measuring the artwork itself would read back
    * its own transformed box and the fit would grow with the zoom.
    */
-  const readGeometry = useCallback(() => {
+  const readGeometry = useCallback((): MapGeometry | null => {
     const stage = stageRef.current;
     if (!stage) return null;
 
@@ -235,7 +296,7 @@ export default function CampusMap({
     const node = wrapperRef.current;
     if (!node) return undefined;
 
-    const onWheel = (event) => {
+    const onWheel = (event: WheelEvent) => {
       const geometry = readGeometry();
       if (!geometry) return;
 
@@ -254,7 +315,7 @@ export default function CampusMap({
 
   /** The zone under a client point, or null when the point is open ground. */
   const zoneAtClientPoint = useCallback(
-    (clientPoint, geometry) => {
+    (clientPoint: Point, geometry: MapGeometry): { zone: Zone | null; artworkPoint: Point } => {
       const layerPoint = invertTransform(clientPoint, geometry.origin, transformRef.current);
       const artworkPoint = {
         x: layerPoint.x / geometry.fit.scale,
@@ -269,7 +330,7 @@ export default function CampusMap({
   );
 
   const selectZone = useCallback(
-    (zone) => {
+    (zone: Zone) => {
       setSelectedId(zone.id);
       setActiveId(zone.id);
       onSelectZone?.(zone);
@@ -284,12 +345,12 @@ export default function CampusMap({
 
   /** The gesture ends: a tap picks, a drag or a pinch never does. */
   const endGesture = useCallback(
-    (gesture, event, cancelled) => {
+    (gesture: Gesture, event: PointerEvent, cancelled: boolean) => {
       gesture.pointers.delete(event.pointerId);
       if (gesture.pointers.size > 0) {
         // Another finger is still down, so the gesture goes on.
         if (gesture.pointers.size === 1) {
-          const [only] = gesture.pointers.values();
+          const [only] = [...gesture.pointers.values()];
           gesture.start = { x: only.x, y: only.y };
           gesture.last = { x: only.x, y: only.y };
           gesture.moved = true;
@@ -303,7 +364,7 @@ export default function CampusMap({
       cleanupRef.current = null;
 
       if (cancelled || gesture.moved || gesture.pinched) return;
-      if (gesture.startTarget?.closest?.('[data-zone-id]')) return;
+      if ((gesture.startTarget as Element | null)?.closest?.('[data-zone-id]')) return;
 
       const geometry = readGeometry();
       if (!geometry) return;
@@ -320,7 +381,7 @@ export default function CampusMap({
 
   /** A finger drags the map, two fingers pinch it around their midpoint. */
   const moveGesture = useCallback(
-    (gesture, event) => {
+    (gesture: Gesture, event: PointerEvent) => {
       const previous = gesture.pointers.get(event.pointerId);
       if (!previous) return;
       gesture.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -378,13 +439,13 @@ export default function CampusMap({
   );
 
   const onPointerDown = useCallback(
-    (event) => {
+    (event: React.PointerEvent<HTMLDivElement>) => {
       const geometry = readGeometry();
       if (!geometry) return;
 
       let gesture = gestureRef.current;
       if (!gesture) {
-        gesture = {
+        const started: Gesture = {
           pointers: new Map(),
           moved: false,
           pinched: false,
@@ -396,11 +457,12 @@ export default function CampusMap({
           startTransform: INITIAL_TRANSFORM,
           geometry,
         };
-        gestureRef.current = gesture;
+        gesture = started;
+        gestureRef.current = started;
 
-        const onMove = (moveEvent) => moveGesture(gesture, moveEvent);
-        const onUp = (upEvent) => endGesture(gesture, upEvent, false);
-        const onCancel = (cancelEvent) => endGesture(gesture, cancelEvent, true);
+        const onMove = (moveEvent: PointerEvent) => moveGesture(started, moveEvent);
+        const onUp = (upEvent: PointerEvent) => endGesture(started, upEvent, false);
+        const onCancel = (cancelEvent: PointerEvent) => endGesture(started, cancelEvent, true);
         window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerup', onUp);
         window.addEventListener('pointercancel', onCancel);
@@ -450,8 +512,8 @@ export default function CampusMap({
    * footprint when the map is zoomed in.
    */
   const scene = useMemo(() => {
-    const flats = [];
-    const volumes = [];
+    const flats: Flat[] = [];
+    const volumes: Volume[] = [];
     const scale = paintedScale;
 
     for (const zone of zones ?? []) {
@@ -509,10 +571,10 @@ export default function CampusMap({
   }, [fit]);
 
   const onKeyDown = useCallback(
-    (event) => {
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (!activeZone) return;
 
-      const directions = {
+      const directions: Record<string, ZoneDirection> = {
         ArrowRight: 'right',
         ArrowLeft: 'left',
         ArrowDown: 'down',
@@ -562,28 +624,28 @@ export default function CampusMap({
 
   /** The box a zone draws and the bigger box it can be hit on. */
   const zoneBoxes = useCallback(
-    (zone) => {
-      const boxWidth = zone.box.width * fit.scale;
-      const boxHeight = zone.box.height * fit.scale;
+    (zone: Zone, measured: Fit) => {
+      const boxWidth = zone.box.width * measured.scale;
+      const boxHeight = zone.box.height * measured.scale;
       const minimum = MIN_HIT_SIZE / transform.scale;
       const width = Math.max(boxWidth, minimum);
       const height = Math.max(boxHeight, minimum);
       return {
-        left: ((zone.box.x * fit.scale - (width - boxWidth) / 2) / fit.width) * 100,
-        top: ((zone.box.y * fit.scale - (height - boxHeight) / 2) / fit.height) * 100,
-        width: (width / fit.width) * 100,
-        height: (height / fit.height) * 100,
+        left: ((zone.box.x * measured.scale - (width - boxWidth) / 2) / measured.width) * 100,
+        top: ((zone.box.y * measured.scale - (height - boxHeight) / 2) / measured.height) * 100,
+        width: (width / measured.width) * 100,
+        height: (height / measured.height) * 100,
         visualLeft: ((width - boxWidth) / 2 / width) * 100,
         visualTop: ((height - boxHeight) / 2 / height) * 100,
         visualWidth: (boxWidth / width) * 100,
         visualHeight: (boxHeight / height) * 100,
       };
     },
-    [fit, transform.scale],
+    [transform.scale],
   );
 
   const anchorFor = useCallback(
-    (zone) => {
+    (zone: Zone) => {
       const width = image?.width ?? 0;
       if (!width) return 'left-1/2 -translate-x-1/2';
       const left = (zone.box.x / width) * 100;
@@ -742,7 +804,7 @@ export default function CampusMap({
             >
               {zones.map((zone) => {
                 if (!zone?.box) return null;
-                const boxes = zoneBoxes(zone);
+                const boxes = zoneBoxes(zone, fit);
                 // La leyenda del croquis puede encender una zona: el edificio y
                 // su nombre se pintan para que se sepa cuál es.
                 const highlighted = zone.id === highlightZoneId;
@@ -761,7 +823,7 @@ export default function CampusMap({
                     data-zone-id={zone.id}
                     data-testid={`zone-${zone.id}`}
                     onFocus={() => setActiveId(zone.id)}
-                    onClick={(event) => {
+                    onClick={(event: React.MouseEvent<HTMLButtonElement>) => {
                       event.stopPropagation();
                       if (dragRef.current) return;
                       // El teclado no trae coordenadas: la opción activada es
