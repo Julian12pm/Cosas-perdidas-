@@ -1115,7 +1115,7 @@ async function runJourney(
       if (!text) return null;
       return { x: Number(text.getAttribute('x')), y: Number(text.getAttribute('y')) };
     });
-    const expectedCode = codeSizePx(sample.polygon ?? [], scaleAtOne);
+    const expectedCode = codeSizePx(sample.polygon ?? [], scaleAtOne, sample.code);
     record(
       vp,
       'la clave se imprime dentro de su edificio',
@@ -1124,6 +1124,20 @@ async function runJourney(
       codeSpot
         ? `${codeSpot.x.toFixed(1)}, ${codeSpot.y.toFixed(1)}`
         : 'el edificio es demasiado pequeño para una letra',
+    );
+
+    // La clave no necesita una chapa detrás: el color sigue a la superficie
+    // en la que cae (el tejado claro o la base oscura).
+    const plate = await page.evaluate(() => {
+      const group = document.querySelector('[data-building="bldg-2k"] [data-shape="code"]');
+      return group ? group.querySelectorAll('rect').length : 0;
+    });
+    record(
+      vp,
+      'la clave no lleva chapa detrás',
+      plate === 0,
+      '0 rectángulos detrás de la clave',
+      `${plate} rectángulo(s)`,
     );
 
     // La clave cabe en su edificio: si no cabe, no se dibuja. Un edificio
