@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { copyToClipboard } from '../data.ts';
+import type { Contact } from '../types.ts';
 
 /*
  * La tarjeta de contacto es la única forma de que las dos partes se habló:
@@ -13,7 +14,15 @@ import { copyToClipboard } from '../data.ts';
  * corto (`contact-card`) se reserva para el caso de una sola tarjeta en
  * pantalla, porque un nombre repetido rompe el modo estricto de una prueba.
  */
-export default function ContactCard({ contact, claimId, single = false }) {
+export default function ContactCard({
+  contact,
+  claimId,
+  single = false,
+}: {
+  contact: Contact | null;
+  claimId: string;
+  single?: boolean;
+}) {
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
   const contentId = useId();

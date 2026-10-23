@@ -2,7 +2,7 @@ import type { OwnerReport, PublicReport } from '#domain/blind-report';
 import { getContactCard, getReport, isApiConfigured, listInbox, listReports } from './api.ts';
 import { artworkToPercent, polygonCentroid } from './map/geometry.ts';
 import { MAP_IMAGE, ZONE_BY_ID } from './map/zones.ts';
-import type { Claim, ClaimSummary, ContactCard, Report, ReportStatus, Session } from './types.ts';
+import type { Claim, ClaimSummary, Contact, Report, ReportStatus, Session } from './types.ts';
 
 // Longitud de la clave de liberación: el dueño del objeto la dicta al
 // estudiante que lo tiene físicamente. Seis dígitos = un millón de combinaciones.
@@ -49,7 +49,7 @@ const MOCK_STUDENTS: Record<string, { displayName: string; email: string } | und
  * La tarjeta de contacto de un estudiante del arranque; null cuando no se
  * conoce. El contacto sólo se libera después de aprobar un reclamo.
  */
-export function contactFor(userId: string): ContactCard | null {
+export function contactFor(userId: string): Contact | null {
   if (userId === MOCK_SESSION.id) {
     return { display_name: MOCK_SESSION.displayName ?? '', email: MOCK_SESSION.email };
   }
