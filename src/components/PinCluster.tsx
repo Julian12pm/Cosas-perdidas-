@@ -1,9 +1,10 @@
 import { CheckCircleIcon } from '@solar-icons/react/bold/check-circle';
 import { QuestionCircleIcon } from '@solar-icons/react/bold/question-circle';
-import Modal from './Modal.jsx';
+import Modal from './Modal.tsx';
 import { formatAge } from '../data.ts';
 import { artworkToPercent, polygonCentroid } from '../map/geometry.ts';
 import { MAP_IMAGE, ZONE_BY_ID } from '../map/zones.ts';
+import type { ClusterGroup, Report } from '../types.ts';
 
 /*
  * Los reportes de una misma zona se apilan en su centro: el último pintado
@@ -17,12 +18,12 @@ import { MAP_IMAGE, ZONE_BY_ID } from '../map/zones.ts';
  */
 
 /** El nombre que el estudiante oye: cuántos objetos y en qué zona. */
-export function clusterName(count, label) {
+export function clusterName(count: number, label: string): string {
   return `${count} ${count === 1 ? 'objeto reportado' : 'objetos reportados'} en ${label}`;
 }
 
 /** La etiqueta de la zona: la del catálogo, o la que trae el reporte. */
-function labelOf(group) {
+function labelOf(group: ClusterGroup): string {
   const zone = group.zoneId ? ZONE_BY_ID.get(group.zoneId) : null;
   return zone?.label ?? group.reports[0]?.zoneLabel ?? 'el campus';
 }
@@ -31,7 +32,7 @@ function labelOf(group) {
  * El punto del marcador: el centro de la zona, el mismo donde caen sus
  * pines. Si la zona no está en el catálogo, el punto del reporte.
  */
-function positionOf(group) {
+function positionOf(group: ClusterGroup): { x: number; y: number } {
   const zone = group.zoneId ? ZONE_BY_ID.get(group.zoneId) : null;
   const centroid = zone ? polygonCentroid(zone.polygon) : null;
   if (!centroid) {
@@ -43,25 +44,30 @@ function positionOf(group) {
 }
 
 /**
- * Los reportes del mapa agrupados por zona.
- *
- * Una zona con un solo reporte conserva su pin; una zona con varios se
- * dibuja como un grupo. Un reporte sin zona (un punto en terreno libre) se
- * queda con su pin, porque no hay dónde agruparlo.
+ * Los reportes del mapa agrupados por zona: una zona con un solo reporte
+ * conserva su pin; una zona con varios se dibuja como un grupo. Un reporte
+ * sin zona (un punto en terreno libre) se queda con su pin, porque no hay
+ * dónde agruparlo.
  */
-export function clusterByZone(reports) {
-  const zones = new Map();
-  const loose = [];
+export function clusterByZone(reports: Report[]): ClusterGroup[] {
+  const zones = new Map<string, ClusterGroup>();
+  const loose: ClusterGroup[] = [];
 
   for (const report of reports ?? []) {
     if (!report) continue;
     if (!report.zoneId) {
-      loose.push({ zoneId: null, reports: [report] });
+      loose.push({ zoneId: null, label: '', position: { x: 0, y: 0 }, reports: [report] });
       continue;
     }
     const group = zones.get(report.zoneId);
     if (group) group.reports.push(report);
-    else zones.set(report.zoneId, { zoneId: report.zoneId, reports: [report] });
+    else
+      zones.set(report.zoneId, {
+        zoneId: report.zoneId,
+        label: '',
+        position: { x: 0, y: 0 },
+        reports: [report],
+      });
   }
 
   return [...zones.values(), ...loose].map((group) => ({
@@ -72,7 +78,13 @@ export function clusterByZone(reports) {
 }
 
 /* ─────────────────────────── El marcador del grupo ─────────────────────────── */
-export default function PinCluster({ group, onOpen }) {
+export default function PinCluster({
+  group,
+  onOpen,
+}: {
+  group: ClusterGroup;
+  onOpen: (zoneId: string) => void;
+}) {
   const count = group.reports.length;
   const lost = group.reports.filter((report) => report.type === 'lost').length;
   // El anillo lleva la mezcla: rojo lo que se perdió, verde lo que se
@@ -90,7 +102,7 @@ export default function PinCluster({ group, onOpen }) {
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation();
-        onOpen(group.zoneId);
+        if (group.zoneId) onOpen(group.zoneId);
       }}
       className="pointer-events-auto absolute z-20 origin-bottom -translate-x-1/2 -translate-y-full cursor-pointer focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
       style={{
@@ -125,7 +137,17 @@ export default function PinCluster({ group, onOpen }) {
 }
 
 /* ──────────────────────────── La lista del grupo ──────────────────────────── */
-export function PinClusterList({ open = true, group, onClose, onOpenReport }) {
+export function PinClusterList({
+  open = true,
+  group,
+  onClose,
+  onOpenReport,
+}: {
+  open?: boolean;
+  group: ClusterGroup;
+  onClose: () => void;
+  onOpenReport: (report: Report) => void;
+}) {
   const count = group.reports.length;
 
   return (
