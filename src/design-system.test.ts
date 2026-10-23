@@ -17,8 +17,8 @@ const CSS = readFileSync(join(ROOT, 'src/index.css'), 'utf8');
 
 /** Los archivos que declaran superficies: los componentes de la app. */
 function componentFiles() {
-  const files = [];
-  const walk = (current) => {
+  const files: string[] = [];
+  const walk = (current: string) => {
     for (const entry of readdirSync(current)) {
       const full = join(current, entry);
       if (statSync(full).isDirectory()) walk(full);
@@ -35,7 +35,7 @@ function componentFiles() {
 const COMPONENTS = componentFiles();
 
 /** Las clases de un componente, en las cadenas que se pintan en pantalla. */
-function classRuns(source) {
+function classRuns(source: string): string[] {
   const runs = [];
   const pattern = /className\s*=\s*(?:"([^"]*)"|\{`([^`]*)`\})/g;
   for (const match of source.matchAll(pattern)) runs.push(match[1] ?? match[2] ?? '');
@@ -126,7 +126,7 @@ describe('la escala de movimiento', () => {
     const scale = ['duration-fast', 'duration-base', 'duration-slow', 'duration-entrance'];
     for (const { file, source } of COMPONENTS) {
       for (const run of classRuns(source)) {
-        const tokens = run.split(/\s+/).filter(Boolean);
+        const tokens = run.split(/\s+/).filter((token): token is string => Boolean(token));
         if (!tokens.some((token) => token.startsWith('transition-'))) continue;
         expect(
           tokens.some((token) => scale.includes(token)),

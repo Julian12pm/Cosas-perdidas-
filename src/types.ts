@@ -84,8 +84,10 @@ export interface Zone {
   kind: ZoneKind;
   safePoint: boolean;
   label: string;
-  box: Box;
-  polygon: Polygon;
+  /** La caja que ocupa en el artwork; una zona sin caja no se dibuja. */
+  box?: Box;
+  /** La forma que se dibuja; una zona sin forma no tiene nada que pintar. */
+  polygon?: Polygon;
   /** Las construcciones partidas en dos: cada ala es una forma de su cuenta. */
   fragments?: Polygon[];
 }

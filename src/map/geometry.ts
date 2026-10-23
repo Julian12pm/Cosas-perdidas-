@@ -8,7 +8,7 @@
  * artwork pixels goes through the painted content box computed here.
  */
 
-import type { Box, MapImage, Point, Polygon, Vertex, Zone } from '../types.ts';
+import type { Box, Point, Polygon, Vertex, Zone } from '../types.ts';
 
 /* ─────────────────────────── Las formas que se miden ─────────────────────────── */
 
@@ -91,6 +91,9 @@ export type HeightFamily = 'low' | 'medium' | 'tall';
 
 /** La dirección de la luz del campus. */
 export type Light = Point;
+
+/** Una zona con su caja: la que se puede dibujar y la que se puede ordenar. */
+export type PlacedZone = Zone & { box: Box };
 
 /** Painted content box of an artwork centred inside its element box. */
 export function fitContain(
@@ -187,8 +190,8 @@ function pointOnSegment(point: Point, start: Vertex, end: Vertex): boolean {
  * Axis-aligned bounds of a polygon; an empty polygon has no place on the
  * croquis, so it has no bounds either.
  */
-export function polygonBounds(polygon: Polygon | null | undefined): PolygonBounds | null {
-  const vertices = polygon ?? [];
+export function polygonBounds(polygon: Polygon): PolygonBounds | null {
+  const vertices = polygon;
   if (vertices.length === 0) return null;
 
   let minX = Infinity;
@@ -208,8 +211,8 @@ export function polygonBounds(polygon: Polygon | null | undefined): PolygonBound
  * Area of a polygon in squared user units; a polygon with fewer than three
  * vertices or with collinear points encloses nothing, so it measures zero.
  */
-export function polygonArea(polygon: Polygon | null | undefined): number {
-  const vertices = polygon ?? [];
+export function polygonArea(polygon: Polygon): number {
+  const vertices = polygon;
   if (vertices.length < MIN_POLYGON_VERTICES) return 0;
 
   let sum = 0;
@@ -226,8 +229,8 @@ export function polygonArea(polygon: Polygon | null | undefined): number {
  * degenerate polygon has no area to weight, so it falls back to the average of
  * its vertices instead of dividing by zero.
  */
-export function polygonCentroid(polygon: Polygon | null | undefined): Point | null {
-  const vertices = polygon ?? [];
+export function polygonCentroid(polygon: Polygon): Point | null {
+  const vertices = polygon;
   if (vertices.length === 0) return null;
 
   let crossSum = 0;
@@ -261,11 +264,8 @@ export function polygonCentroid(polygon: Polygon | null | undefined): Point | nu
  * on a vertex counts as inside, because a tap on the border of a building
  * still means that building.
  */
-export function pointInPolygon(
-  point: Point | null | undefined,
-  polygon: Polygon | null | undefined,
-): boolean {
-  const vertices = polygon ?? [];
+export function pointInPolygon(point: Point | null | undefined, polygon: Polygon): boolean {
+  const vertices = polygon;
   if (!point || vertices.length === 0) return false;
 
   for (let index = 0; index < vertices.length; index += 1) {
@@ -367,7 +367,7 @@ function matchZone(
  */
 export function zoneToPercent(
   box: Box | null | undefined,
-  image: MapImage | null | undefined,
+  image: Size | null | undefined,
 ): PercentBox | null {
   const width = image?.width ?? 0;
   const height = image?.height ?? 0;
@@ -572,14 +572,14 @@ export function clampTransform(transform: MapTransform, limits?: MapLimits | nul
  * Zones grouped in reading order: rows from top to bottom and, inside a row,
  * the zones from left to right, grouped by the vertical span of their boxes.
  */
-export function zoneReadingOrder(zones: Zone[] | null | undefined): Zone[][] {
-  const placed = (zones ?? []).filter((zone) => zone?.box);
+export function zoneReadingOrder(zones: Zone[] | null | undefined): PlacedZone[][] {
+  const placed = (zones ?? []).filter((zone): zone is PlacedZone => Boolean(zone?.box));
   const sorted = [...placed].sort(
     (left, right) => left.box.y - right.box.y || left.box.x - right.box.x,
   );
 
-  const rows: { zones: Zone[]; bottom: number }[] = [];
-  let row: { zones: Zone[]; bottom: number } | null = null;
+  const rows: { zones: PlacedZone[]; bottom: number }[] = [];
+  let row: { zones: PlacedZone[]; bottom: number } | null = null;
   for (const zone of sorted) {
     const center = zone.box.y + zone.box.height / 2;
     const bottom = zone.box.y + zone.box.height;
@@ -596,12 +596,12 @@ export function zoneReadingOrder(zones: Zone[] | null | undefined): Zone[][] {
 }
 
 /** The horizontal centre of a zone box. */
-function zoneCenter(zone: Zone): number {
+function zoneCenter(zone: PlacedZone): number {
   return zone.box.x + zone.box.width / 2;
 }
 
 /** The zone of a row whose centre is the closest to the given zone. */
-function nearestInRow(row: Zone[] | undefined, zone: Zone): Zone | null {
+function nearestInRow(row: PlacedZone[] | undefined, zone: PlacedZone): PlacedZone | null {
   if (!row || row.length === 0) return null;
   const target = zoneCenter(zone);
   return row.reduce((best, candidate) =>
@@ -620,10 +620,10 @@ export type ZoneDirection = 'left' | 'right' | 'up' | 'down';
  * when there is nowhere to go.
  */
 export function nextZoneInDirection(
-  rows: Zone[][] | null | undefined,
+  rows: PlacedZone[][] | null | undefined,
   zoneId: string,
   direction: ZoneDirection,
-): Zone | null {
+): PlacedZone | null {
   const list = rows ?? [];
   let rowIndex = -1;
   let colIndex = -1;
@@ -707,10 +707,20 @@ const HEIGHT_RULES: [HeightFamily, RegExp][] = [
 ];
 
 /**
+ * La zona de la que se lee su nombre: la altura sale de la leyenda del plano,
+ * así que de la zona sólo se necesita el nombre (y la etiqueta, por si el
+ * plano no lo dio).
+ */
+export interface NamedZone {
+  name?: string | null;
+  label?: string | null;
+}
+
+/**
  * La familia de altura de una zona, deducida del nombre que le dio la
  * leyenda del plano; una zona que la leyenda no describe es media.
  */
-export function heightCategory(zone: Zone | null | undefined): HeightFamily {
+export function heightCategory(zone: NamedZone | null | undefined): HeightFamily {
   const name = String(zone?.name ?? zone?.label ?? '');
   for (const [family, pattern] of HEIGHT_RULES) {
     if (pattern.test(name)) return family;
@@ -722,7 +732,7 @@ export function heightCategory(zone: Zone | null | undefined): HeightFamily {
  * La altura de una zona, en píxeles de pantalla; una función pura del
  * nombre que la leyenda del plano le dio.
  */
-export function heightFor(zone: Zone | null | undefined): number {
+export function heightFor(zone: NamedZone | null | undefined): number {
   return HEIGHT_TABLE[heightCategory(zone)] ?? DEFAULT_HEIGHT;
 }
 
@@ -762,12 +772,12 @@ function outwardNormal(a: Vertex, b: Vertex, center: Point): Point {
  * zoom y el tejado deja de derivar lejos de su propia huella.
  */
 export function extrudePolygon(
-  points: Polygon | null | undefined,
+  points: Polygon,
   heightPx: number,
   scale = 1,
   light: Light = LIGHT,
 ): ExtrudedPolygon {
-  const ring = points ?? [];
+  const ring = points;
   if (ring.length < MIN_POLYGON_VERTICES) return { top: [], sides: [], shadow: [] };
 
   const { x: lx, y: ly } = unitLight(light);
@@ -802,8 +812,8 @@ function round2(value: number): number {
 }
 
 /** El camino de un anillo, en la forma que entiende el SVG. */
-export function polygonPath(points: Polygon | null | undefined): string {
-  const ring = points ?? [];
+export function polygonPath(points: Polygon): string {
+  const ring = points;
   if (ring.length === 0) return '';
   const point = ([x, y]: Vertex) => `${round2(x)} ${round2(y)}`;
   return `M ${ring.map(point).join(' L ')} Z`;
