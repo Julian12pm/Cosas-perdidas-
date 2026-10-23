@@ -127,6 +127,21 @@ export interface Report {
   safePointZoneId?: string | null;
 }
 
+/** El estado de una pantalla que carga los datos del campus. */
+export type ScreenState = 'loading' | 'ready' | 'error' | 'offline';
+
+/**
+ * Los reportes de una misma zona, agrupados: el mapa los dibuja como UN
+ * marcador con la cuenta.
+ */
+export interface ClusterGroup {
+  zoneId: string | null;
+  label: string;
+  /** El centro de la zona, en porcentajes del croquis. */
+  position: { x: number; y: number };
+  reports: Report[];
+}
+
 /**
  * El reclamo como lo lista la bandeja.
  *

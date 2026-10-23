@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 /*
  * The dialog is a plain fixed overlay: no portal and no dependency, the app
@@ -27,10 +27,26 @@ const FOCUSABLE = [
  */
 const EXIT_FALLBACK_MS = 600;
 
-export default function Modal({ open, onClose, title, description, children, footer, testId }) {
-  const dialogRef = useRef(null);
-  const overlayRef = useRef(null);
-  const restoreRef = useRef(null);
+export default function Modal({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+  testId,
+}: {
+  open: boolean;
+  onClose?: () => void;
+  title: ReactNode;
+  description?: ReactNode;
+  children?: ReactNode;
+  footer?: ReactNode;
+  testId?: string;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const restoreRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
   const descriptionId = useId();
 
@@ -45,7 +61,8 @@ export default function Modal({ open, onClose, title, description, children, foo
   // the focus during the commit, before the effect below can look at it.
   const wasOpen = useRef(false);
   if (open && !wasOpen.current && typeof document !== 'undefined') {
-    restoreRef.current = document.activeElement;
+    const active = document.activeElement;
+    restoreRef.current = active instanceof HTMLElement ? active : null;
   }
   wasOpen.current = open;
 
@@ -75,8 +92,11 @@ export default function Modal({ open, onClose, title, description, children, foo
 
     const dialog = dialogRef.current;
     const active = document.activeElement;
+    const focused = active instanceof HTMLElement ? active : null;
     // A child with `autoFocus` already took the focus, so it is left alone.
-    const first = dialog?.contains(active) ? active : dialog?.querySelector(FOCUSABLE);
+    const first = dialog?.contains(focused)
+      ? focused
+      : dialog?.querySelector<HTMLElement>(FOCUSABLE);
     (first ?? dialog)?.focus();
 
     const previousOverflow = document.body.style.overflow;
@@ -110,7 +130,7 @@ export default function Modal({ open, onClose, title, description, children, foo
   }, [open]);
 
   const onKeyDown = useCallback(
-    (event) => {
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.key === 'Escape') {
         event.stopPropagation();
         onClose?.();
@@ -119,7 +139,7 @@ export default function Modal({ open, onClose, title, description, children, foo
       if (event.key !== 'Tab') return;
 
       const dialog = dialogRef.current;
-      const focusable = [...(dialog?.querySelectorAll(FOCUSABLE) ?? [])].filter(
+      const focusable = [...(dialog?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])].filter(
         (node) => node.offsetParent !== null,
       );
       if (focusable.length === 0) {
@@ -130,7 +150,7 @@ export default function Modal({ open, onClose, title, description, children, foo
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      const index = focusable.indexOf(document.activeElement);
+      const index = focusable.findIndex((node) => node === document.activeElement);
       if (index === -1) {
         event.preventDefault();
         (event.shiftKey ? last : first).focus();
@@ -157,7 +177,7 @@ export default function Modal({ open, onClose, title, description, children, foo
     <div
       ref={overlayRef}
       className="fixed inset-0 z-50 flex items-end justify-center p-4 pb-[calc(1rem_+_var(--keyboard,0px))] sm:items-center sm:pb-4"
-      onClick={(event) => {
+      onClick={(event: React.MouseEvent<HTMLDivElement>) => {
         if (event.target === event.currentTarget) onClose?.();
       }}
     >
@@ -180,7 +200,7 @@ export default function Modal({ open, onClose, title, description, children, foo
         onKeyDown={onKeyDown}
         // El `animationend` del propio diálogo es lo que avisa de que la
         // salida terminó; el de los hijos (el temblor de la clave) no cuenta.
-        onAnimationEnd={(event) => {
+        onAnimationEnd={(event: React.AnimationEvent<HTMLDivElement>) => {
           if (event.target !== event.currentTarget) return;
           if (leaving) setPhase('closed');
         }}
