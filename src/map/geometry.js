@@ -214,15 +214,40 @@ export function zoneShapes(zone) {
  * A construction the plan draws in pieces carries every piece as a fragment:
  * a tap on the small wing of a building cut in half by its own label still
  * resolves that building. A zone without fragments keeps its polygon.
+ *
+ * With a scale, the ROOF answers first: the roof is the face the finger
+ * lands on (the base displaced toward the light), so what is drawn is what is
+ * tapped. Only when no roof holds the point the base gets the say. Without a
+ * scale there is no roof to look for, and the base alone answers.
  */
-export function zoneAtPoint(point, zones) {
+export function zoneAtPoint(point, zones, options = {}) {
+  const scale = options.scale ?? 0;
+  const light = options.light ?? LIGHT;
+
+  if (scale > 0) {
+    const roof = matchZone(
+      point,
+      zones,
+      (shape, zone) => extrudePolygon(shape, heightFor(zone), scale, light).top,
+    );
+    if (roof) return roof;
+  }
+
+  return matchZone(point, zones, (shape) => shape);
+}
+
+/**
+ * The smallest zone whose shape, as the resolver draws it, holds the point.
+ */
+function matchZone(point, zones, shapeOf) {
   let match = null;
   let matchArea = Infinity;
 
   for (const zone of zones ?? []) {
     for (const shape of zoneShapes(zone)) {
-      if (!pointInPolygon(point, shape)) continue;
-      const area = polygonArea(shape);
+      const candidate = shapeOf(shape, zone);
+      if (!pointInPolygon(point, candidate)) continue;
+      const area = polygonArea(candidate);
       if (area < matchArea) {
         match = zone;
         matchArea = area;
@@ -515,14 +540,28 @@ export function nextZoneInDirection(rows, zoneId, direction) {
  * sombras están de acuerdo.
  */
 
-/** La luz del campus: de arriba a la izquierda, unitaria. */
+/**
+ * La luz del campus: de arriba a la izquierda, unitaria.
+ */
 export const LIGHT = { x: -Math.SQRT1_2, y: -Math.SQRT1_2 };
 
 /**
- * Las alturas del relieve, en unidades del artwork (un píxel del plano de
- * 700 x 647). La tabla vive aquí y en ningún otro lado.
+ * Las alturas del relieve, en PÍXELES DE PANTALLA: la pared que se ve, no
+ * una distancia del plano. El artwork se dibuja en 700 x 647 unidades que en
+ * un teléfono son media píxel cada una, así que una altura medida en unidades
+ * del plano se aplana: 4 unidades son 2 px de pared, que no leen como
+ * volumen. Medida en píxeles, la pared es la misma en el teléfono, en la
+ * pantalla grande y con el croquis ampliado.
+ *
+ * La tabla vive aquí y en ningún otro lado.
  */
-export const HEIGHT_TABLE = { low: 4, medium: 6, tall: 9 };
+export const HEIGHT_TABLE = { low: 8, medium: 10, tall: 16 };
+
+/**
+ * El piso de la pared: por debajo de esto el edificio más pequeño del campus
+ * deja de leerse como un volumen y vuelve a ser una mancha del plano.
+ */
+export const MIN_WALL_PX = 7;
 
 /** La altura por omisión: lo que la leyenda no nombra es un volumen medio. */
 export const DEFAULT_HEIGHT = HEIGHT_TABLE.medium;
@@ -562,7 +601,7 @@ export function heightCategory(zone) {
 }
 
 /**
- * La altura de una zona, en unidades del artwork; una función pura del
+ * La altura de una zona, en píxeles de pantalla; una función pura del
  * nombre que la leyenda del plano le dio.
  */
 export function heightFor(zone) {
@@ -598,14 +637,24 @@ function outwardNormal(a, b, center) {
  * lados que dan la espalda a la luz (las que se ven en un relieve visto desde
  * arriba) y la sombra es el anillo desplazado al revés, para pintarse debajo
  * del volumen.
+ *
+ * La altura se mide en PÍXELES DE PANTALLA y la escala dice cuántos píxeles
+ * mide una unidad del artwork, así que el desplazamiento devuelto en unidades
+ * es `altura / escala`: la pared conserva su tamaño en pantalla a cualquier
+ * zoom y el tejado deja de derivar lejos de su propia huella.
  */
-export function extrudePolygon(points, height, light = LIGHT) {
+export function extrudePolygon(points, heightPx, scale = 1, light = LIGHT) {
   const ring = points ?? [];
   if (ring.length < MIN_POLYGON_VERTICES) return { top: [], sides: [], shadow: [] };
 
   const { x: lx, y: ly } = unitLight(light);
-  const dx = lx * height;
-  const dy = ly * height;
+  // La altura se mide en el eje dominante de la luz: el tejado cae esa
+  // cantidad de píxeles y el resto del desplazamiento viene de su dirección.
+  const units = scale > 0 ? heightPx / scale : heightPx;
+  const dominant = Math.max(Math.abs(lx), Math.abs(ly)) || 1;
+  const magnitude = units / dominant;
+  const dx = lx * magnitude;
+  const dy = ly * magnitude;
   const center = polygonCentroid(ring);
 
   const sides = [];

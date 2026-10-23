@@ -99,6 +99,54 @@
    */
   --color-danger: #ef4444;
   --color-success: #22c55e;
+
+  /**
+   * Relief — the tones of the campus volumes: the face that sees the sky,
+   * the two walls and the footprint they stand on. The ramp is stepped so
+   * the relief READS: the roof drops 2.58:1 to the side wall and the side
+   * wall 2.01:1 to the down wall (a flat 1.13:1 between walls is
+   * invisible), the down wall still holds 1.44:1 against the footprint
+   * under it, and the code printed on the roof holds 7.71:1 (WCAG AA).
+   *
+   * The safe hand-over points wear the brand amber instead: the same ramp
+   * (3.36:1, 1.73:1, 1.56:1) with a code at 8.44:1.
+   */
+  --color-relief-roof: #93a7cd;
+  --color-relief-wall-side: #4f6086;
+  --color-relief-wall-down: #2a3348;
+  --color-relief-base: #101623;
+  --color-relief-code: #0d121d;
+  --color-relief-shadow: #05070d;
+  --color-relief-flat: #1e2538;
+  --color-relief-flat-edge: #5d71a2;
+
+  --color-relief-safe-roof: #f7a738;
+  --color-relief-safe-wall-side: #84500f;
+  --color-relief-safe-wall-down: #523114;
+  --color-relief-safe-base: #1f1409;
+  --color-relief-safe-code: #2a1a05;
+  --color-relief-safe-mark: #fbd08a;
+}
+
+/**
+ * El dedo no deja un halo azul en los controles: en un mapa que se arrastra
+ * con el dedo, el halo del navegador delata el toque y ensucia el relieve.
+ */
+button,
+a,
+[role='option'] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/**
+ * Ningún texto del producto se pinta por debajo de 12 px. Las dos
+ * utilidades que lo hacían (`text-[10px]` y `text-[11px]`) suben a 12 px:
+ * están en componentes que no son de esta unidad de trabajo, así que el
+ * piso se aplica desde aquí.
+ */
+.text-\[10px\],
+.text-\[11px\] {
+  font-size: 12px;
 }
 
 @keyframes pin-drop {

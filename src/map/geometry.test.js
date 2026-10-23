@@ -6,10 +6,12 @@ import {
   DEFAULT_HEIGHT,
   extrudePolygon,
   fitContain,
+  HEIGHT_TABLE,
   heightCategory,
   heightFor,
   invertTransform,
   LIGHT,
+  MIN_WALL_PX,
   nextZoneInDirection,
   panBy,
   pointInPolygon,
@@ -385,6 +387,42 @@ describe('zoneAtPoint with fragments', () => {
   });
 });
 
+describe('zoneAtPoint with the roof', () => {
+  // El dedo no toca la base del edificio: toca el techo, que es la base
+  // desplazada hacia la luz. Un toque que resuelve la geometría de la base
+  // abriría la vecina.
+  it('resolves the zone whose roof holds the point', () => {
+    expect(zoneAtPoint({ x: 200, y: 230 }, ZONES, { scale: 0.5 })?.id).toBe('bldg-2k');
+  });
+
+  it('does not resolve the roof when the scale is unknown', () => {
+    // Sin escala no hay techo que buscar: sólo la base, y el punto está
+    // fuera de ella.
+    expect(zoneAtPoint({ x: 200, y: 230 }, ZONES)).toBeNull();
+  });
+
+  it('keeps resolving the base of a zone', () => {
+    expect(zoneAtPoint({ x: 250, y: 260 }, ZONES, { scale: 0.5 })?.id).toBe('bldg-2k');
+  });
+
+  it('prefers the roof over a base that happens to cover the point', () => {
+    const outer = { id: 'outer', name: 'Aula', polygon: RECTANGLE };
+    const inner = {
+      id: 'inner',
+      name: 'Aula',
+      polygon: [
+        [200, 250],
+        [240, 250],
+        [240, 270],
+        [200, 270],
+      ],
+    };
+    // El punto está en el techo de "inner" y en la base de "outer": lo que
+    // se ve es el techo, así que el techo manda.
+    expect(zoneAtPoint({ x: 210, y: 240 }, [outer, inner], { scale: 0.5 })?.id).toBe('inner');
+  });
+});
+
 describe('zoneToPercent', () => {
   it('maps a box covering the whole artwork to a full-size placement', () => {
     expect(
@@ -723,25 +761,32 @@ describe('heightCategory', () => {
 
 describe('heightFor', () => {
   it('gives a low volume to the classrooms', () => {
-    expect(heightFor({ name: 'Aula' })).toBe(4);
+    expect(heightFor({ name: 'Aula' })).toBe(8);
   });
 
   it('gives a medium volume to the laboratories and the workshops', () => {
-    expect(heightFor({ name: 'Laboratorio de Rayos X' })).toBe(6);
+    expect(heightFor({ name: 'Laboratorio de Rayos X' })).toBe(10);
   });
 
   it('gives a tall volume to the gymnasium and the library', () => {
-    expect(heightFor({ name: 'Centro de Información (Biblioteca)' })).toBe(9);
+    expect(heightFor({ name: 'Centro de Información (Biblioteca)' })).toBe(16);
   });
 
   it('gives the default volume to a name the legend does not describe', () => {
     expect(heightFor({ name: 'Edificio sin código legible' })).toBe(DEFAULT_HEIGHT);
-    expect(DEFAULT_HEIGHT).toBe(6);
+    expect(DEFAULT_HEIGHT).toBe(10);
   });
 
   it('reads the height from the name, never from the code', () => {
     expect(heightFor({ code: '2K', name: 'Aula' })).toBe(heightFor({ name: 'Aula' }));
-    expect(heightFor({ code: 'AF', name: 'Centro de Información (Biblioteca)' })).toBe(9);
+    expect(heightFor({ code: 'AF', name: 'Centro de Información (Biblioteca)' })).toBe(16);
+  });
+
+  it('keeps every height above the floor that makes a volume readable', () => {
+    // El piso es lo que hace que el edificio más pequeño del campus se lea
+    // como un volumen en un teléfono: sin él, el relieve se aplana.
+    expect(MIN_WALL_PX).toBe(7);
+    expect(Math.min(...Object.values(HEIGHT_TABLE))).toBeGreaterThanOrEqual(MIN_WALL_PX);
   });
 });
 
@@ -752,26 +797,34 @@ describe('extrudePolygon', () => {
     [10, 10],
     [0, 10],
   ];
-  const OFFSET = 4 * Math.SQRT1_2;
 
-  it('offsets the top face toward the light by the height', () => {
-    expect(OFFSET).toBeCloseTo(2.828, 3);
-    const { top } = extrudePolygon(SQUARE, 4, LIGHT);
+  it('offsets the roof by the height in screen pixels, measured in artwork units', () => {
+    // 8 px de pared a 0.5 px por unidad son 16 unidades del artwork.
+    const { top } = extrudePolygon(SQUARE, 8, 0.5, LIGHT);
     expect(top).toHaveLength(4);
-    expect(top[0][0]).toBeCloseTo(-4 * Math.SQRT1_2, 6);
-    expect(top[0][1]).toBeCloseTo(-4 * Math.SQRT1_2, 6);
-    expect(top[2][0]).toBeCloseTo(10 - 4 * Math.SQRT1_2, 6);
+    expect(top[0][0]).toBeCloseTo(-16, 6);
+    expect(top[0][1]).toBeCloseTo(-16, 6);
+    expect(top[2][0]).toBeCloseTo(10 - 16, 6);
+  });
+
+  it('keeps the wall the same size on screen at any scale', () => {
+    // A 6x de zoom la pared sigue midiendo lo mismo en píxeles: el
+    // desplazamiento en unidades se encoge con la escala.
+    const near = extrudePolygon(SQUARE, 8, 0.5, LIGHT);
+    const far = extrudePolygon(SQUARE, 8, 3, LIGHT);
+    expect(near.top[0][0] * 0.5).toBeCloseTo(far.top[0][0] * 3, 6);
+    expect(near.top[0][1] * 0.5).toBeCloseTo(far.top[0][1] * 3, 6);
   });
 
   it('offsets the shadow away from the light', () => {
-    const { shadow } = extrudePolygon(SQUARE, 4, LIGHT);
-    expect(shadow[0][0]).toBeCloseTo(4 * Math.SQRT1_2, 6);
-    expect(shadow[0][1]).toBeCloseTo(4 * Math.SQRT1_2, 6);
-    expect(shadow[2][0]).toBeCloseTo(10 + 4 * Math.SQRT1_2, 6);
+    const { shadow } = extrudePolygon(SQUARE, 8, 0.5, LIGHT);
+    expect(shadow[0][0]).toBeCloseTo(16, 6);
+    expect(shadow[0][1]).toBeCloseTo(16, 6);
+    expect(shadow[2][0]).toBeCloseTo(10 + 16, 6);
   });
 
   it('walls only the edges that face away from the light', () => {
-    const { sides } = extrudePolygon(SQUARE, 4, LIGHT);
+    const { sides } = extrudePolygon(SQUARE, 8, 0.5, LIGHT);
     expect(sides).toHaveLength(2);
     // La pared de la derecha (la que mira a la derecha) y la de abajo.
     expect(sides[0][0]).toEqual([10, 0]);
@@ -781,17 +834,19 @@ describe('extrudePolygon', () => {
   });
 
   it('builds every wall as the quad that joins the base edge to the top edge', () => {
-    const { sides } = extrudePolygon(SQUARE, 4, LIGHT);
+    const { sides } = extrudePolygon(SQUARE, 8, 0.5, LIGHT);
     const [a, b, topB, topA] = sides[0];
-    expect(topA[0]).toBeCloseTo(a[0] - 4 * Math.SQRT1_2, 6);
-    expect(topA[1]).toBeCloseTo(a[1] - 4 * Math.SQRT1_2, 6);
-    expect(topB[0]).toBeCloseTo(b[0] - 4 * Math.SQRT1_2, 6);
-    expect(topB[1]).toBeCloseTo(b[1] - 4 * Math.SQRT1_2, 6);
+    expect(topA[0]).toBeCloseTo(a[0] - 16, 6);
+    expect(topA[1]).toBeCloseTo(a[1] - 16, 6);
+    expect(topB[0]).toBeCloseTo(b[0] - 16, 6);
+    expect(topB[1]).toBeCloseTo(b[1] - 16, 6);
   });
 
   it('extrudes toward any light', () => {
-    const { top, sides } = extrudePolygon(SQUARE, 4, { x: 1, y: 0 });
-    expect(top[0][0]).toBeCloseTo(4, 6);
+    // Con la luz a la derecha el eje dominante es el horizontal: el tejado
+    // se desplaza 16 unidades hacia la derecha y no baja.
+    const { top, sides } = extrudePolygon(SQUARE, 8, 0.5, { x: 1, y: 0 });
+    expect(top[0][0]).toBeCloseTo(16, 6);
     expect(top[0][1]).toBeCloseTo(0, 6);
     // Con la luz a la derecha sólo se ve la pared que le da la espalda: la izquierda.
     expect(sides).toHaveLength(1);
@@ -800,15 +855,15 @@ describe('extrudePolygon', () => {
   });
 
   it('extrudes a ring that is not a rectangle', () => {
-    const { top, sides, shadow } = extrudePolygon(L_SHAPE, 6, LIGHT);
+    const { top, sides, shadow } = extrudePolygon(L_SHAPE, 10, 0.5, LIGHT);
     expect(top).toHaveLength(L_SHAPE.length);
     expect(shadow).toHaveLength(L_SHAPE.length);
     expect(sides.length).toBeGreaterThan(0);
   });
 
   it('returns an empty volume for a ring that encloses nothing', () => {
-    expect(extrudePolygon([], 6, LIGHT)).toEqual({ top: [], sides: [], shadow: [] });
-    expect(extrudePolygon([[0, 0]], 6, LIGHT)).toEqual({ top: [], sides: [], shadow: [] });
+    expect(extrudePolygon([], 10, 0.5, LIGHT)).toEqual({ top: [], sides: [], shadow: [] });
+    expect(extrudePolygon([[0, 0]], 10, 0.5, LIGHT)).toEqual({ top: [], sides: [], shadow: [] });
   });
 });
 

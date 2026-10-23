@@ -10,7 +10,6 @@ import {
   nextZoneInDirection,
   panBy,
   polygonArea,
-  polygonBounds,
   polygonCentroid,
   polygonPath,
   scaleForPoint,
@@ -65,28 +64,37 @@ const optionId = (zone) => `map-zone-${zone.id}`;
 /**
  * The tones of the relief, from the app's own ramp: the face that sees the
  * light is the lightest, the walls sink, and the base hides the edge of the
- * building the plan painted underneath.
+ * building the plan painted underneath. The colours live in `src/index.css`
+ * as project tokens; here they are only the roles they play.
  */
 const TONES = {
-  roof: 'var(--color-surface-600)',
-  wallSide: 'var(--color-surface-700)',
-  wallDown: 'var(--color-surface-800)',
-  base: 'var(--color-surface-800)',
-  code: 'var(--color-surface-100)',
-  safeRoof: 'var(--color-brand-400)',
-  safeWallSide: 'var(--color-brand-600)',
-  safeWallDown: 'var(--color-surface-800)',
-  safeBase: 'var(--color-surface-900)',
-  safeCode: 'var(--color-surface-900)',
-  safeMark: 'var(--color-brand-200)',
-  flat: 'var(--color-surface-700)',
-  flatEdge: 'var(--color-surface-600)',
-  shadow: '#000000',
+  roof: 'var(--color-relief-roof)',
+  wallSide: 'var(--color-relief-wall-side)',
+  wallDown: 'var(--color-relief-wall-down)',
+  base: 'var(--color-relief-base)',
+  code: 'var(--color-relief-code)',
+  safeRoof: 'var(--color-relief-safe-roof)',
+  safeWallSide: 'var(--color-relief-safe-wall-side)',
+  safeWallDown: 'var(--color-relief-safe-wall-down)',
+  safeBase: 'var(--color-relief-safe-base)',
+  safeCode: 'var(--color-relief-safe-code)',
+  safeMark: 'var(--color-relief-safe-mark)',
+  flat: 'var(--color-relief-flat)',
+  flatEdge: 'var(--color-relief-flat-edge)',
+  shadow: 'var(--color-relief-shadow)',
 };
 
-/** The size of the code printed on a roof, in artwork units. */
-const CODE_MAX = 9;
-const CODE_MIN = 5;
+/**
+ * The size of the code printed on a roof, in SCREEN pixels: the artwork is
+ * 700 units wide and on a phone it is 358, so a size in artwork units is
+ * half the size it looks like in the source.
+ */
+const CODE_PX = 13;
+
+/** The size of the code printed on a roof, in artwork units, at a scale. */
+function codeSize(scale) {
+  return CODE_PX / (scale > 0 ? scale : 1);
+}
 
 /**
  * The tone of a wall: the one that looks sideways catches more of the sky
@@ -252,7 +260,10 @@ export default function CampusMap({
         x: layerPoint.x / geometry.fit.scale,
         y: layerPoint.y / geometry.fit.scale,
       };
-      return { zone: zoneAtPoint(artworkPoint, zones), artworkPoint };
+      // El dedo toca el tejado: la geometría que se busca es la del volumen
+      // extruido a la escala con la que está pintado, no la de su base.
+      const scale = geometry.fit.scale * transformRef.current.scale;
+      return { zone: zoneAtPoint(artworkPoint, zones, { scale }), artworkPoint };
     },
     [zones],
   );
@@ -326,9 +337,11 @@ export default function CampusMap({
           gesture.last = { x: gesture.start.x, y: gesture.start.y };
         }
         const dx = event.clientX - gesture.last.x;
-        // Con `touch-pan-y` el navegador se queda con el eje vertical: el
-        // croquis sólo se desliza de lado para no pelear el mismo gesto.
-        const dy = event.pointerType === 'touch' ? 0 : event.clientY - gesture.last.y;
+        // Sin ampliar, el eje vertical es de la página: el croquis sólo se
+        // desliza de lado para no pelear el mismo gesto. Ampliado, el croquis
+        // guarda el gesto entero y se mueve en los dos ejes.
+        const locked = event.pointerType === 'touch' && transformRef.current.scale <= MIN_SCALE;
+        const dy = locked ? 0 : event.clientY - gesture.last.y;
         gesture.last = { x: event.clientX, y: event.clientY };
         applyTransform((current) => panBy(current, dx, dy, gesture.geometry.limits));
         return;
@@ -420,13 +433,26 @@ export default function CampusMap({
   );
 
   /**
+   * The rendered scale of the croquis: screen pixels per artwork unit. It
+   * carries the fit of the artwork in its box AND the zoom, because both
+   * multiply the artwork on the screen.
+   */
+  const paintedScale = (fit?.scale ?? 1) * transform.scale;
+
+  /**
    * The scene the app draws: the volumes of the constructions (one per
    * fragment, so a building the plan cuts in two is two volumes) and the
    * flat zones that have no height.
+   *
+   * The volumes are extruded in SCREEN space: the wall is a fixed number of
+   * pixels whatever the size of the croquis, so the relief reads the same on
+   * a phone and on a desktop, and the roof does not drift away from its own
+   * footprint when the map is zoomed in.
    */
   const scene = useMemo(() => {
     const flats = [];
     const volumes = [];
+    const scale = paintedScale;
 
     for (const zone of zones ?? []) {
       const shapes = zoneShapes(zone);
@@ -444,7 +470,6 @@ export default function CampusMap({
       if (zone.kind !== 'building') continue;
 
       const height = heightFor(zone);
-      const bounds = polygonBounds(zone.polygon);
       // El código se imprime una sola vez, en la pieza mayor del edificio.
       const main = shapes.reduce(
         (best, shape) => (polygonArea(shape) > polygonArea(best) ? shape : best),
@@ -452,24 +477,18 @@ export default function CampusMap({
       );
 
       shapes.forEach((shape, index) => {
-        const volume = extrudePolygon(shape, height, LIGHT);
-        const center = polygonCentroid(shape);
+        const volume = extrudePolygon(shape, height, scale, LIGHT);
+        // El tejado es la base desplazada hacia la luz: su centro es donde
+        // va el código, no el centro de la base.
+        const roofCenter = polygonCentroid(volume.top);
         volumes.push({
           key: `${zone.id}-${index}`,
           zone,
           shape,
           ...volume,
           main: shape === main,
-          roof: center ? { x: center.x + LIGHT.x * height, y: center.y + LIGHT.y * height } : null,
-          codeSize: bounds
-            ? Math.min(
-                CODE_MAX,
-                Math.max(
-                  CODE_MIN,
-                  Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * 0.45,
-                ),
-              )
-            : CODE_MAX,
+          roof: roofCenter ? { x: roofCenter.x, y: roofCenter.y } : null,
+          codeSize: codeSize(scale),
         });
       });
     }
@@ -477,7 +496,7 @@ export default function CampusMap({
     // De atrás hacia adelante: lo que está más lejos de la luz se pinta primero.
     volumes.sort((left, right) => depthOf(right) - depthOf(left));
     return { flats, volumes };
-  }, [zones]);
+  }, [paintedScale, zones]);
 
   /**
    * The pin is measured against the artwork that holds it: 32px over a croquis
@@ -581,11 +600,12 @@ export default function CampusMap({
       ref={wrapperRef}
       data-testid="map"
       onPointerDown={onPointerDown}
-      className="relative inline-block w-full max-w-2xl touch-pan-y select-none overflow-hidden rounded-xl border-2 border-surface-700 bg-surface-800 shadow-2xl overscroll-contain"
+      className="relative inline-block w-full max-w-2xl touch-pan-y select-none overflow-hidden rounded-xl border-2 border-surface-700 bg-surface-800 shadow-2xl [-webkit-tap-highlight-color:transparent]"
     >
       <div className="relative" ref={stageRef}>
         <svg
           data-testid="map-artwork"
+          data-scale={paintedScale}
           viewBox={`0 0 ${artwork.width} ${artwork.height}`}
           preserveAspectRatio="xMidYMid meet"
           role="img"
@@ -698,7 +718,7 @@ export default function CampusMap({
 
         {fit && raster !== 'error' && (
           <div
-            className="absolute pointer-events-none touch-none"
+            className="absolute pointer-events-none"
             style={{
               left: fit.x,
               top: fit.y,
@@ -707,6 +727,10 @@ export default function CampusMap({
               transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
               transformOrigin: '0 0',
               '--pin-scale': pinScale,
+              // Sin ampliar, el gesto vertical es de la página: un
+              // deslizamiento que empieza sobre una zona desplaza la
+              // página. Ampliado, el croquis guarda el gesto entero.
+              touchAction: transform.scale > MIN_SCALE ? 'none' : 'pan-y',
             }}
           >
             <div
@@ -776,7 +800,7 @@ export default function CampusMap({
                       }}
                     >
                       <span
-                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone)} whitespace-nowrap rounded-md bg-surface-900/95 px-1.5 py-0.5 text-[10px] font-semibold text-brand-200 shadow-lg ring-1 ring-surface-600/70 transition-opacity duration-150 ${
+                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone)} whitespace-nowrap rounded-md bg-surface-900/95 px-1.5 py-0.5 text-[12px] font-semibold text-brand-200 shadow-lg ring-1 ring-surface-600/70 transition-opacity duration-150 ${
                           highlighted
                             ? 'opacity-100'
                             : 'opacity-0 group-hover:opacity-100 group-focus:opacity-100'
