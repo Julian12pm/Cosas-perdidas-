@@ -17,7 +17,7 @@ import { execFile } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { APP_URL, ROOT, ensureServer } from './smoke-journey.mjs';
+import { APP_URL, ROOT, ensureServer } from './smoke-journey.ts';
 
 const execFileAsync = promisify(execFile);
 const OUT_DIR = join(ROOT, '.e2e');
@@ -117,7 +117,11 @@ const DUMPS = [
 ];
 
 /** Corre lightpanda y devuelve su salida. */
-async function lightpanda(args, extra, url) {
+async function lightpanda(
+  args: string[],
+  extra: string[],
+  url?: string,
+): Promise<{ stdout: string; stderr: string }> {
   const full = ['fetch', ...args, ...extra];
   if (url) full.push(url);
   const { stdout, stderr } = await execFileAsync(LIGHTPANDA, full, {
@@ -128,8 +132,17 @@ async function lightpanda(args, extra, url) {
 }
 
 /** Los papeles y los nombres que aparecen en el árbol semántico. */
-function analyze(tree) {
-  const roles = new Map();
+interface TreeAnalysis {
+  roles: [string, number][];
+  controls: string[];
+  named: string[];
+  dialogs: string[];
+  listboxes: string[];
+  options: number;
+}
+
+function analyze(tree: string): TreeAnalysis {
+  const roles = new Map<string, number>();
   const controls = [];
   const named = [];
   const dialogs = [];
@@ -163,7 +176,7 @@ function analyze(tree) {
 }
 
 /** Un recorte legible del árbol, sin las líneas de texto sueltas. */
-function excerpt(text, limit = 60) {
+function excerpt(text: string, limit = 60): string {
   return text
     .split('\n')
     .filter((line) => /\[i\]|dialog|listbox|option/.test(line))
@@ -172,7 +185,7 @@ function excerpt(text, limit = 60) {
 }
 
 /** El trozo del árbol que empieza en el diálogo y sigue hasta el final. */
-function dialogExcerpt(text, limit = 20) {
+function dialogExcerpt(text: string, limit = 20): string {
   const lines = text.split('\n');
   const start = lines.findIndex((line) => /dialog '/.test(line));
   if (start === -1) return '(no hay diálogo en este árbol)';
@@ -189,8 +202,15 @@ async function main() {
       : `El servidor en ${APP_URL} ya estaba corriendo: la prueba no lo toca`,
   );
 
-  const written = [];
-  const summaries = [];
+  const written: { file: string; description: string; bytes: number }[] = [];
+  const summaries: (TreeAnalysis & {
+    file: string;
+    description: string;
+    stdout: string;
+    stderr: string;
+    warning: string | null;
+    markdownLines?: number;
+  })[] = [];
 
   try {
     for (const dump of DUMPS) {
@@ -218,19 +238,21 @@ async function main() {
       } catch (error) {
         // lightpanda avisa por stderr y sale con 1 cuando el --wait-script no
         // llegó a cumplirse, pero el volcado sí se escribe: se usa igual.
-        stdout = error.stdout ?? '';
-        stderr = error.stderr ?? String(error);
+        const failure = error as { stdout?: string; stderr?: string };
+        stdout = failure.stdout ?? '';
+        stderr = failure.stderr ?? String(error);
         if (!stdout.trim()) throw error;
-        warning = stderr.trim().split('\n').pop();
+        warning = stderr.trim().split('\n').pop() ?? null;
       }
 
       await writeFile(file, stdout);
       written.push({ file, description: dump.description, bytes: Buffer.byteLength(stdout) });
 
-      const summary = dump.args.includes('markdown')
+      const summary: TreeAnalysis & { markdownLines?: number } = dump.args.includes('markdown')
         ? {
             roles: [],
             controls: [],
+            named: [],
             dialogs: [],
             listboxes: [],
             options: 0,
