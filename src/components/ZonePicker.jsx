@@ -119,7 +119,7 @@ export default function ZonePicker({ zones, onSelect, state = 'ready' }) {
           ref={listRef}
           role="listbox"
           aria-label="Zonas del campus"
-          className="surface-panel absolute z-30 mt-2 max-h-[min(18rem,60dvh)] w-full overflow-y-auto"
+          className="surface-panel animate-dropdown-in absolute z-30 mt-2 max-h-[min(18rem,60dvh)] w-full origin-top overflow-y-auto"
         >
           {results.length === 0 ? (
             state === 'ready' ? (
