@@ -195,6 +195,37 @@ A tap resolves the **real shape** (`zoneAtPoint` over the traced fragments), not
 so tapping the wing of a building opens that building. Reports of the same zone are grouped in one
 marker with a count, so nothing hides under the finger.
 
+## The interface system
+
+The interface has **one** surface recipe and **one** motion scale, declared once in
+`src/index.css` and enforced by `src/design-system.test.js`.
+
+**Surfaces.** A surface names its role and nothing else:
+
+| Role   | Class            | Fill             | Radius | Elevation |
+| ------ | ---------------- | ---------------- | ------ | --------- |
+| panel  | `surface-panel`  | `surface-800`    | 16 px  | one       |
+| row    | `surface-row`    | `surface-700/40` | 12 px  | none      |
+| inset  | `surface-inset`  | `surface-800/70` | 8 px   | none      |
+| accent | `surface-accent` | `brand-500/10`   | 8 px   | none      |
+
+A component never declares its own border, fill, shadow or radius — the gate fails the build if
+it does. The map frame, the legend, the report card, the claim card, the state panels, the picker
+dropdown, the modal, the cluster entries and the login card are all the same recipe.
+
+**Motion.** Four durations and two curves, and every transition names the property it animates:
+`--duration-fast` (150 ms), `--duration-base` (200 ms), `--duration-slow` (300 ms),
+`--duration-entrance` (500 ms), `--ease-entrance` and `--ease-exit`. `transition-all` is banned: it
+fought the pin's pulse over `box-shadow` and the pin's hover shadow never showed.
+
+**Cross-cutting rules.** Two of them live in `src/index.css` on purpose, because they belong to the
+product and not to a component: the tap highlight is transparent everywhere, and no text is painted
+below 12 px.
+
+**Nothing depends on a hover.** The zone that was tapped says its name on the croquis, the pin's
+name answers to focus and to the pressure of the finger, and the legend lights the zone with a tap.
+A phone has no cursor, and the map has to work without one.
+
 ## Conventions
 
 - **Artifact language**: code, comments, commits and docs are English. UI copy stays Spanish
