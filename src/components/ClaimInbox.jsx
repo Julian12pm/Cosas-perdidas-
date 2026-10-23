@@ -21,10 +21,7 @@ const STATUS_LABELS = {
 /** Una fila de la bandeja, con el dato ciego que ofrece el reclamante. */
 function ClaimRow({ claim, actions, single = false }) {
   return (
-    <li
-      data-testid={`claim-${claim.id}`}
-      className="rounded-xl border border-surface-600/50 bg-surface-700/30 p-3"
-    >
+    <li data-testid={`claim-${claim.id}`} className="surface-panel p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-semibold text-white">{claim.reportTitle}</p>
@@ -38,7 +35,7 @@ function ClaimRow({ claim, actions, single = false }) {
       </div>
 
       {claim.providedBlindDetail && (
-        <p className="mt-2 rounded-lg bg-surface-800/70 p-2 text-sm text-surface-200">
+        <p className="surface-inset mt-2 p-2 text-sm text-surface-200">
           <span className="text-xs uppercase tracking-wide text-text-muted">Dato ciego: </span>
           {claim.providedBlindDetail}
         </p>
@@ -139,7 +136,7 @@ export default function ClaimInbox({
               Recibidos ({incoming.length})
             </h3>
             {incoming.length === 0 ? (
-              <p className="rounded-xl border border-surface-600/50 bg-surface-800 p-3 text-sm text-text-muted">
+              <p className="surface-inset p-3 text-sm text-text-muted">
                 Nadie ha reclamado tus reportes.
               </p>
             ) : (
@@ -188,7 +185,7 @@ export default function ClaimInbox({
               Enviados ({outgoing.length})
             </h3>
             {outgoing.length === 0 ? (
-              <p className="rounded-xl border border-surface-600/50 bg-surface-800 p-3 text-sm text-text-muted">
+              <p className="surface-inset p-3 text-sm text-text-muted">
                 No has reclamado ningún reporte.
               </p>
             ) : (

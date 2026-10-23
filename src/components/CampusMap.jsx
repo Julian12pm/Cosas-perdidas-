@@ -600,7 +600,7 @@ export default function CampusMap({
       ref={wrapperRef}
       data-testid="map"
       onPointerDown={onPointerDown}
-      className="relative inline-block w-full max-w-2xl touch-pan-y select-none overflow-hidden rounded-xl border-2 border-surface-700 bg-surface-800 shadow-2xl [-webkit-tap-highlight-color:transparent]"
+      className="surface-panel relative inline-block w-full max-w-2xl touch-pan-y select-none overflow-hidden [-webkit-tap-highlight-color:transparent]"
     >
       <div className="relative" ref={stageRef}>
         <svg
@@ -800,7 +800,7 @@ export default function CampusMap({
                       }}
                     >
                       <span
-                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone)} whitespace-nowrap rounded-md bg-surface-900/95 px-1.5 py-0.5 text-[12px] font-semibold text-brand-200 shadow-lg ring-1 ring-surface-600/70 transition-opacity duration-150 ${
+                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone)} whitespace-nowrap rounded-md bg-surface-900/95 px-1.5 py-0.5 text-[12px] font-semibold text-brand-200 shadow-panel ring-1 ring-surface-600/70 transition-opacity duration-150 ${
                           highlighted
                             ? 'opacity-100'
                             : 'opacity-0 group-hover:opacity-100 group-focus:opacity-100'

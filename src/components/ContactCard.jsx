@@ -37,7 +37,7 @@ export default function ContactCard({ contact, claimId, single = false }) {
     <div
       data-testid={`contact-card-${claimId}`}
       onMouseEnter={() => setRevealed(true)}
-      className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-3"
+      className="surface-accent p-3"
     >
       <div data-testid={single ? 'contact-card' : undefined}>
         <p className="text-xs font-semibold uppercase tracking-wide text-brand-200">
