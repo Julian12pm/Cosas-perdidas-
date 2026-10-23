@@ -5,11 +5,11 @@ A campus lost & found for Instituto Tecnológico de Morelia. Students report wha
 campus, and the two sides are matched through a claim inbox with a release key that closes
 the case.
 
-> **Status: the backend is real, the web app is not wired to it yet.** The API, the database schema and
-> the domain rules are built and covered by tests, including an end-to-end journey. The browser app
-> still runs on mock data: it needs the institutional login and the live pins (plan task T21). The
-> full architecture is specified in
-> [`odd/tasks/objetos-perdidas-itm.md`](odd/tasks/objetos-perdidas-itm.md).
+> **Status: the product works end to end.** The API, the database, the domain rules, the vector
+> croquis and the web app are built and covered by tests: 350 unit tests plus two browser journeys
+> (the demo mode and the full stack against a real Postgres). The institutional login still uses the
+> console transport until the institute delegates a sending domain. The full architecture is
+> specified in [`odd/tasks/objetos-perdidas-itm.md`](odd/tasks/objetos-perdidas-itm.md).
 
 ---
 
@@ -134,23 +134,34 @@ odd/tasks/
   objetos-perdidos-itm.md   the ODD plan: specs, stack, norms, architecture, tasks
 ```
 
-## The map coordinate model
+## The map
 
-The artwork is an `<img>` that the browser letterboxes inside its own box (`object-contain`
-plus a max-height), so a percentage of the box is **not** a percentage of the artwork.
+The croquis is **drawn by the app**: an inline `<svg viewBox="0 0 700 647">` whose ground layer is
+the official raster re-themed in the app's dark palette (`public/mapa-itm-dark.png`, written by the
+generator), with every building standing on it as an extruded volume — a top face, the two walls
+that face away from one light and a cast shadow.
 
-`src/map/geometry.js` owns the fix:
+The footprints are **traced from the raster's own pixels** (the plan prints each code over its
+orange fill, so the holes are filled and the shape is eroded one pixel before the contour is
+traced), and the heights come from the use the plan's own legend declares: a block of classrooms is
+low, a workshop or a laboratory is medium, a gymnasium or the library is tall. Nothing is invented.
 
 ```
-fitContain(box, natural)      → painted content box of the artwork
-clientToArtwork(client, ...)  → artwork pixels, or null for a click on the padding
-artworkToPercent(point, ...)  → the percentage format pins are stored in
+scripts/extract-zones.mjs   -> classifies the plan, paints the dark artwork, traces the
+                               footprints and writes src/map/zones.js
+src/map/zones.js            -> the catalogue: 90 zones with their code, name, unit, kind,
+                               safe point, box and traced fragments
+src/map/geometry.js         -> the pure maths: the coordinate model, the extrusion, the
+                               hit testing and the zone search
 ```
 
-Pins live in a layer that covers only the painted area, so a tap and the pin it creates land
-on the same pixel of the plan at any viewport size. The next step (plan task T7) replaces the
-raster with the vector croquis and a `zones` catalogue, so a report can reference a named
-building instead of a free coordinate.
+The names are NOT drawn in the picture: the plan's baked legend was a lossy photograph of the
+table the app already holds, so it became an HTML panel (`ZoneLegend`), searchable, with the
+official plan in colour still reachable as a reference.
+
+A tap resolves the **real shape** (`zoneAtPoint` over the traced fragments), not the button's box,
+so tapping the wing of a building opens that building. Reports of the same zone are grouped in one
+marker with a count, so nothing hides under the finger.
 
 ## Conventions
 
