@@ -4,7 +4,7 @@ import { ClockCircleIcon } from '@solar-icons/react/bold/clock-circle';
 import { MapPointIcon } from '@solar-icons/react/bold/map-point';
 import { QuestionCircleIcon } from '@solar-icons/react/bold/question-circle';
 import { EmptyState, ErrorState, LoadingState } from './StateMessage.jsx';
-import { REPORT_STATUS_LABELS, UNKNOWN_STATUS_LABEL, copyToClipboard, formatAge } from '../data.js';
+import { REPORT_STATUS_LABELS, UNKNOWN_STATUS_LABEL, copyToClipboard, formatAge } from '../data.ts';
 
 /*
  * "Mis reportes" es el archivo del estudiante: qué reportes publicó, en qué

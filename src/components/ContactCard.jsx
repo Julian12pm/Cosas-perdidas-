@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import { copyToClipboard } from '../data.js';
+import { copyToClipboard } from '../data.ts';
 
 /*
  * La tarjeta de contacto es la única forma de que las dos partes se habló:

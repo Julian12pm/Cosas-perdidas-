@@ -1,6 +1,8 @@
-import { MAP_IMAGE, ZONE_BY_ID } from './map/zones.ts';
-import { artworkToPercent, polygonCentroid } from './map/geometry.ts';
+import type { OwnerReport, PublicReport } from '#domain/blind-report';
 import { getContactCard, getReport, isApiConfigured, listInbox, listReports } from './api.ts';
+import { artworkToPercent, polygonCentroid } from './map/geometry.ts';
+import { MAP_IMAGE, ZONE_BY_ID } from './map/zones.ts';
+import type { Claim, ClaimSummary, ContactCard, Report, ReportStatus, Session } from './types.ts';
 
 // Longitud de la clave de liberación: el dueño del objeto la dicta al
 // estudiante que lo tiene físicamente. Seis dígitos = un millón de combinaciones.
@@ -13,10 +15,10 @@ export const RELEASE_KEY_MAX_ATTEMPTS = 5;
 
 // Los dominios que el instituto usa para sus buzones: el correo institucional
 // es la identidad, no hay registro anónimo.
-export const INSTITUTIONAL_DOMAINS = ['morelia.tecnm.mx', 'itmorelia.edu.mx'];
+export const INSTITUTIONAL_DOMAINS: string[] = ['morelia.tecnm.mx', 'itmorelia.edu.mx'];
 
 // Los estados de un reporte, como los lee el estudiante.
-export const REPORT_STATUS_LABELS = {
+export const REPORT_STATUS_LABELS: Record<ReportStatus, string> = {
   open: 'Abierto',
   pending_claim: 'Esperando reclamo',
   in_custody: 'En resguardo',
@@ -30,7 +32,7 @@ export const REPORT_STATUS_LABELS = {
 export const UNKNOWN_STATUS_LABEL = 'Sin estado';
 
 // La sesión con la que corre la demostración cuando no hay API configurada.
-export const MOCK_SESSION = {
+export const MOCK_SESSION: Session = {
   id: 'usr-demo-01',
   email: 'L2030451@morelia.tecnm.mx',
   displayName: 'María Fernanda Ruiz',
@@ -38,7 +40,7 @@ export const MOCK_SESSION = {
 };
 
 // Los demás estudiantes del campus que aparecen en los datos de arranque.
-const MOCK_STUDENTS = {
+const MOCK_STUDENTS: Record<string, { displayName: string; email: string } | undefined> = {
   'usr-demo-02': { displayName: 'Ana Lucía Ramírez', email: 'L2030452@morelia.tecnm.mx' },
   'usr-demo-03': { displayName: 'Miguel Ángel Ríos', email: 'L1820447@morelia.tecnm.mx' },
 };
@@ -47,9 +49,9 @@ const MOCK_STUDENTS = {
  * La tarjeta de contacto de un estudiante del arranque; null cuando no se
  * conoce. El contacto sólo se libera después de aprobar un reclamo.
  */
-export function contactFor(userId) {
+export function contactFor(userId: string): ContactCard | null {
   if (userId === MOCK_SESSION.id) {
-    return { display_name: MOCK_SESSION.displayName, email: MOCK_SESSION.email };
+    return { display_name: MOCK_SESSION.displayName ?? '', email: MOCK_SESSION.email };
   }
   const student = MOCK_STUDENTS[userId];
   if (!student) return null;
@@ -61,12 +63,12 @@ export function contactFor(userId) {
  * usa el API: `Estudiante #XXXX`. Vive aquí y no en `api/` porque el paquete
  * del navegador no puede arrastrar código de servidor.
  */
-export function reporterAlias(userId) {
+export function reporterAlias(userId: string): string {
   return `Estudiante #${aliasSuffix(userId)}`;
 }
 
 /** Los cuatro últimos dígitos del hash FNV-1a del identificador, en base 36. */
-function aliasSuffix(id) {
+function aliasSuffix(id: string): string {
   let hash = 0x811c9dc5;
   for (let index = 0; index < id.length; index += 1) {
     hash ^= id.charCodeAt(index);
@@ -79,7 +81,7 @@ function aliasSuffix(id) {
  * La misma regla que el API: sólo un buzón de un dominio del instituto abre
  * una sesión. Un subdominio se rechaza, o `evil.morelia.tecnm.mx` pasaría.
  */
-export function isInstitutionalEmail(email) {
+export function isInstitutionalEmail(email: string | null | undefined): boolean {
   const trimmed = String(email ?? '').trim();
   const at = trimmed.lastIndexOf('@');
   if (at <= 0) return false;
@@ -95,7 +97,7 @@ export function isInstitutionalEmail(email) {
  * Copia un texto al portapapeles; devuelve si el navegador lo permitió, para
  * que la interfaz pueda avisar cuando el portapapeles no está disponible.
  */
-export async function copyToClipboard(text) {
+export async function copyToClipboard(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
     return true;
@@ -106,20 +108,21 @@ export async function copyToClipboard(text) {
 
 // Los pines de ejemplo apuntan a zonas reales del catálogo, para que los datos
 // de arranque no describan un campus que no existe.
-function mockZone(zoneId) {
+function mockZone(zoneId: string): { zoneId: string; zoneLabel: string } {
   const zone = ZONE_BY_ID.get(zoneId);
+  if (!zone) throw new Error(`la zona de arranque ${zoneId} no está en el catálogo`);
   return { zoneId: zone.id, zoneLabel: zone.label };
 }
 
 /** Una marca de tiempo de hace unas horas, para que la demo nunca envejezca. */
-function hoursAgo(hours) {
+function hoursAgo(hours: number): string {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 }
 
 // Datos ficticios iniciales de objetos perdidos/encontrados en el campus.
 // Cada reporte lleva su dueño: la identidad es la del estudiante que entró
 // con su correo institucional, nunca un nombre escrito a mano.
-export const MOCK_PINS = [
+export const MOCK_PINS: Report[] = [
   {
     id: 'pin-1',
     type: 'lost', // Pin Rojo - "Perdí algo aquí"
@@ -197,7 +200,7 @@ export const MOCK_PINS = [
 
 // Los reclamos del arranque: uno recibido contra el reporte de la sesión y
 // uno enviado por ella. El contacto de un reclamo se libera al aprobarlo.
-export const MOCK_CLAIMS = [
+export const MOCK_CLAIMS: Claim[] = [
   {
     id: 'claim-1',
     reportId: 'pin-1',
@@ -229,12 +232,12 @@ export const MOCK_CLAIMS = [
 // Genera una clave de liberación aleatoria y uniforme.
 // Math.random no sirve para un secreto: usa el generador criptográfico del
 // navegador y descarta los valores sesgados para mantener la distribución.
-export function generateUnlockCode() {
+export function generateUnlockCode(): string {
   const limit = 10 ** RELEASE_KEY_LENGTH;
   const ceiling = Math.floor(0xffffffff / limit) * limit;
   const buffer = new Uint32Array(1);
 
-  let value;
+  let value: number;
   do {
     crypto.getRandomValues(buffer);
     value = buffer[0];
@@ -244,9 +247,9 @@ export function generateUnlockCode() {
 }
 
 // Formatear fecha legible
-export function formatTimestamp(ts) {
+export function formatTimestamp(ts: string | number): string {
   const date = new Date(ts);
-  const options = {
+  const options: Intl.DateTimeFormatOptions = {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
@@ -257,7 +260,7 @@ export function formatTimestamp(ts) {
 }
 
 /** Qué tan viejo es un reporte, en palabras y sin decir la hora exacta. */
-export function formatAge(timestamp) {
+export function formatAge(timestamp: string | number): string {
   const then = new Date(timestamp).getTime();
   if (!Number.isFinite(then)) return '';
 
@@ -293,7 +296,7 @@ export const DEMO_LATENCY_MS = 250;
  * La posición de un pin: el API manda los píxeles del artwork y el mapa
  * trabaja con porcentajes, como los pines de la demostración.
  */
-function positionOf(report) {
+function positionOf(report: PublicReport): { x: number; y: number } {
   const x = Number(report.map_x);
   const y = Number(report.map_y);
   if (Number.isFinite(x) && Number.isFinite(y)) {
@@ -310,7 +313,7 @@ function positionOf(report) {
 }
 
 /** Dos decimales: el pin se ve igual con más. */
-function round2(value) {
+function round2(value: number): number {
   return parseFloat(value.toFixed(2));
 }
 
@@ -321,7 +324,10 @@ function round2(value) {
  * ciego y el contacto). La app necesita una sola forma, así que la vista del
  * dueño se encima de la pública cuando la hay.
  */
-export function reportFromApi(report, { session, owner = null } = {}) {
+export function reportFromApi(
+  report: PublicReport,
+  { session, owner = null }: { session: Session; owner?: OwnerReport | null },
+): Report {
   const mine = report.alias === reporterAlias(session.id);
   const zone = ZONE_BY_ID.get(report.zone);
 
@@ -348,7 +354,7 @@ export function reportFromApi(report, { session, owner = null } = {}) {
 }
 
 /** El reclamo como la bandeja lo lista. */
-export function claimFromApi(claim) {
+export function claimFromApi(claim: ClaimSummary): Claim {
   return {
     id: claim.id,
     reportId: claim.reportId,
@@ -358,7 +364,7 @@ export function claimFromApi(claim) {
     message: null,
     status: claim.status,
     direction: claim.direction,
-    createdAt: claim.createdAt,
+    createdAt: new Date(claim.createdAt).toISOString(),
     // El contacto sólo se pide después de aprobar el reclamo.
     contact: null,
   };
@@ -372,7 +378,10 @@ export function claimFromApi(claim) {
  * estudiante se piden otra vez para leer su dato ciego, que el mapa no
  * publica.
  */
-async function loadApiCampus(session) {
+async function loadApiCampus(session: Session): Promise<{
+  reports: Report[];
+  claims: Claim[];
+}> {
   const [pins, inbox] = await Promise.all([listReports(), listInbox()]);
   const mine = pins.filter((pin) => pin.alias === reporterAlias(session.id));
   const owned = await Promise.all(mine.map((pin) => getReport(pin.id)));
@@ -412,7 +421,10 @@ async function loadApiCampus(session) {
  * Con un API configurado el campus es el de verdad: los pines, los reportes
  * y los reclamos salen de la base de datos.
  */
-export async function loadCampusData(session) {
+export async function loadCampusData(session: Session): Promise<{
+  reports: Report[];
+  claims: Claim[];
+}> {
   if (isApiConfigured()) return loadApiCampus(session);
 
   await new Promise((resolve) => setTimeout(resolve, DEMO_LATENCY_MS));

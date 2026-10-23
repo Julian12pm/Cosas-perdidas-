@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import { MapPointIcon } from '@solar-icons/react/bold/map-point';
-import { INSTITUTIONAL_DOMAINS, MOCK_SESSION, isInstitutionalEmail } from '../data.js';
+import { INSTITUTIONAL_DOMAINS, MOCK_SESSION, isInstitutionalEmail } from '../data.ts';
 import { isApiConfigured, requestMagicLink } from '../api.ts';
 
 /*
