@@ -27,12 +27,65 @@ import {
   zoneToPercent,
   zoomAt,
 } from './geometry.ts';
+import type { Fit, PercentBox, Size } from './geometry.ts';
+import type { Box, Point, Polygon, Zone } from '../types.ts';
 
 const ARTWORK = { width: 846, height: 647 };
 
+/** The fit of an artwork that does fit: the test knows it does. */
+function fitOf(box: Size, natural: Size = ARTWORK): Fit {
+  const fit = fitContain(box, natural);
+  if (!fit) throw new Error('the artwork does not fit the box');
+  return fit;
+}
+
+/** The artwork point of a client point that is inside the artwork. */
+function artworkOf(
+  clientX: number,
+  clientY: number,
+  origin: { left: number; top: number },
+  fit: Fit,
+): Point {
+  const point = clientToArtwork(clientX, clientY, origin, fit, ARTWORK);
+  if (!point) throw new Error('the point is outside the artwork');
+  return point;
+}
+
+/** The centroid of a polygon that has one. */
+function centroidOf(polygon: Polygon): Point {
+  const centroid = polygonCentroid(polygon);
+  if (!centroid) throw new Error('the polygon has no centroid');
+  return centroid;
+}
+
+/** Una zona de la prueba: el catálogo con lo que cada prueba necesita. */
+function zoneOf(zone: Partial<Zone> & { id: string }): Zone {
+  return {
+    code: null,
+    name: zone.id,
+    unit: 'campus',
+    kind: 'building',
+    safePoint: false,
+    label: zone.id,
+    ...zone,
+  };
+}
+
+/** Las zonas de la prueba, con lo que el catálogo no usa. */
+function zonesOf(zones: (Partial<Zone> & { id: string })[]): Zone[] {
+  return zones.map((zone) => zoneOf(zone));
+}
+
+/** The placement of a zone box that fits the artwork. */
+function placementOf(box: Box, image: Size = ARTWORK): PercentBox {
+  const placement = zoneToPercent(box, image);
+  if (!placement) throw new Error('the box does not fit the artwork');
+  return placement;
+}
+
 describe('fitContain', () => {
   it('fills the element box when both share the aspect ratio', () => {
-    const fit = fitContain({ width: 846, height: 647 }, ARTWORK);
+    const fit = fitOf({ width: 846, height: 647 });
     expect(fit.width).toBe(846);
     expect(fit.height).toBe(647);
     expect(fit.x).toBe(0);
@@ -41,7 +94,7 @@ describe('fitContain', () => {
   });
 
   it('centres the artwork inside a box that is too tall', () => {
-    const fit = fitContain({ width: 846, height: 1000 }, ARTWORK);
+    const fit = fitOf({ width: 846, height: 1000 });
     expect(fit.width).toBe(846);
     expect(fit.height).toBe(647);
     expect(fit.y).toBe((1000 - 647) / 2);
@@ -49,7 +102,7 @@ describe('fitContain', () => {
   });
 
   it('centres the artwork inside a box that is too wide', () => {
-    const fit = fitContain({ width: 1200, height: 647 }, ARTWORK);
+    const fit = fitOf({ width: 1200, height: 647 });
     expect(fit.height).toBe(647);
     expect(fit.width).toBe(846);
     expect(fit.x).toBe((1200 - 846) / 2);
@@ -57,7 +110,7 @@ describe('fitContain', () => {
   });
 
   it('scales down when the artwork does not fit', () => {
-    const fit = fitContain({ width: 400, height: 400 }, ARTWORK);
+    const fit = fitOf({ width: 400, height: 400 });
     expect(fit.scale).toBeCloseTo(400 / 846, 6);
     expect(fit.width).toBeCloseTo(400, 6);
     expect(fit.height).toBeCloseTo(400 / (846 / 647), 6);
@@ -72,22 +125,21 @@ describe('fitContain', () => {
 
 describe('clientToArtwork', () => {
   const box = { width: 1200, height: 647 };
-  const fit = fitContain(box, ARTWORK);
+  const fit = fitOf(box);
   const origin = { left: 100, top: 50 };
 
   it('maps the top-left corner of the artwork to (0, 0)', () => {
-    const point = clientToArtwork(origin.left + fit.x, origin.top + fit.y, origin, fit, ARTWORK);
+    const point = artworkOf(origin.left + fit.x, origin.top + fit.y, origin, fit);
     expect(point.x).toBeCloseTo(0, 6);
     expect(point.y).toBeCloseTo(0, 6);
   });
 
   it('maps the centre of the artwork to its centre', () => {
-    const point = clientToArtwork(
+    const point = artworkOf(
       origin.left + fit.x + fit.width / 2,
       origin.top + fit.y + fit.height / 2,
       origin,
       fit,
-      ARTWORK,
     );
     expect(point.x).toBeCloseTo(ARTWORK.width / 2, 6);
     expect(point.y).toBeCloseTo(ARTWORK.height / 2, 6);
@@ -115,14 +167,14 @@ describe('artworkToPercent', () => {
 });
 
 // Zone polygons live in the same 1600x1000 user-unit space as the croquis.
-const RECTANGLE = [
+const RECTANGLE: Polygon = [
   [180, 240],
   [320, 240],
   [320, 280],
   [180, 280],
 ];
 
-const L_SHAPE = [
+const L_SHAPE: Polygon = [
   [0, 0],
   [100, 0],
   [100, 40],
@@ -131,7 +183,7 @@ const L_SHAPE = [
   [0, 100],
 ];
 
-const ZONES = [
+const ZONES = zonesOf([
   {
     id: 'bldg-2k',
     code: '2K',
@@ -183,7 +235,7 @@ const ZONES = [
       [700, 200],
     ],
   },
-];
+]);
 
 describe('polygonBounds', () => {
   it('returns the bounds of a polygon in user units', () => {
@@ -228,13 +280,13 @@ describe('polygonCentroid', () => {
   });
 
   it('weights the centroid by area instead of averaging the vertices', () => {
-    const skewed = [
+    const skewed: Polygon = [
       [0, 0],
       [400, 0],
       [400, 100],
       [0, 300],
     ];
-    const centroid = polygonCentroid(skewed);
+    const centroid = centroidOf(skewed);
     expect(centroid.x).toBeCloseTo(166.6667, 4);
     expect(centroid.y).toBeCloseTo(108.3333, 4);
   });
@@ -292,7 +344,7 @@ describe('pointInPolygon', () => {
   });
 
   it('contains only the segment for a two-point polygon', () => {
-    const segment = [
+    const segment: Polygon = [
       [0, 0],
       [100, 0],
     ];
@@ -316,8 +368,8 @@ describe('zoneAtPoint', () => {
   });
 
   it('returns the smallest zone when two of them overlap', () => {
-    const outer = { id: 'outer', polygon: RECTANGLE };
-    const inner = {
+    const outer = zoneOf({ id: 'outer', polygon: RECTANGLE });
+    const inner = zoneOf({
       id: 'inner',
       polygon: [
         [200, 250],
@@ -325,7 +377,7 @@ describe('zoneAtPoint', () => {
         [240, 270],
         [200, 270],
       ],
-    };
+    });
     expect(zoneAtPoint({ x: 220, y: 260 }, [outer, inner])?.id).toBe('inner');
   });
 });
@@ -334,23 +386,23 @@ describe('zoneAtPoint with fragments', () => {
   // The plan cuts some constructions in half with their own printed label:
   // the wing is a shape of its own, and a tap on it still resolves the
   // building it belongs to.
-  const WING = [
+  const WING: Polygon = [
     [0, 0],
     [40, 0],
     [40, 20],
     [0, 20],
   ];
-  const BODY = [
+  const BODY: Polygon = [
     [60, 0],
     [160, 0],
     [160, 60],
     [60, 60],
   ];
-  const FRAGMENTED = {
+  const FRAGMENTED = zoneOf({
     id: 'bldg-2h',
     polygon: BODY,
     fragments: [BODY, WING],
-  };
+  });
 
   it('resolves the building from a fragment that is not its polygon', () => {
     expect(zoneAtPoint({ x: 20, y: 10 }, [FRAGMENTED])?.id).toBe('bldg-2h');
@@ -369,7 +421,7 @@ describe('zoneAtPoint with fragments', () => {
   });
 
   it('picks the smallest shape that holds the point', () => {
-    const overlapping = {
+    const overlapping = zoneOf({
       id: 'bldg-2h',
       polygon: BODY,
       fragments: [
@@ -381,7 +433,7 @@ describe('zoneAtPoint with fragments', () => {
           [70, 30],
         ],
       ],
-    };
+    });
     expect(zoneAtPoint({ x: 80, y: 20 }, [overlapping])?.id).toBe('bldg-2h');
     expect(zoneAtPoint({ x: 120, y: 40 }, [overlapping])?.id).toBe('bldg-2h');
   });
@@ -406,8 +458,8 @@ describe('zoneAtPoint with the roof', () => {
   });
 
   it('prefers the roof over a base that happens to cover the point', () => {
-    const outer = { id: 'outer', name: 'Aula', polygon: RECTANGLE };
-    const inner = {
+    const outer = zoneOf({ id: 'outer', name: 'Aula', polygon: RECTANGLE });
+    const inner = zoneOf({
       id: 'inner',
       name: 'Aula',
       polygon: [
@@ -416,7 +468,7 @@ describe('zoneAtPoint with the roof', () => {
         [240, 270],
         [200, 270],
       ],
-    };
+    });
     // El punto está en el techo de "inner" y en la base de "outer": lo que
     // se ve es el techo, así que el techo manda.
     expect(zoneAtPoint({ x: 210, y: 240 }, [outer, inner], { scale: 0.5 })?.id).toBe('inner');
@@ -431,7 +483,7 @@ describe('zoneToPercent', () => {
   });
 
   it('keeps the offset and the size of a box that does not start at the origin', () => {
-    const placement = zoneToPercent({ x: 335, y: 194, width: 40, height: 8 }, ARTWORK);
+    const placement = placementOf({ x: 335, y: 194, width: 40, height: 8 });
     expect(placement.left).toBeCloseTo(39.5981, 4);
     expect(placement.top).toBeCloseTo(29.9845, 4);
     expect(placement.width).toBeCloseTo(4.7281, 4);
@@ -642,12 +694,12 @@ describe('scaleForPoint', () => {
 });
 
 describe('zoneReadingOrder', () => {
-  const ROW_ZONES = [
+  const ROW_ZONES = zonesOf([
     { id: 'low', box: { x: 100, y: 300, width: 20, height: 20 } },
     { id: 'row-left', box: { x: 10, y: 100, width: 20, height: 20 } },
     { id: 'row-right', box: { x: 200, y: 105, width: 20, height: 20 } },
     { id: 'tall', box: { x: 300, y: 95, width: 20, height: 60 } },
-  ];
+  ]);
 
   it('groups the zones into rows from top to bottom', () => {
     const rows = zoneReadingOrder(ROW_ZONES);
@@ -663,18 +715,18 @@ describe('zoneReadingOrder', () => {
   });
 
   it('ignores the zones without a box', () => {
-    const rows = zoneReadingOrder([{ id: 'none' }, ...ROW_ZONES]);
+    const rows = zoneReadingOrder(zonesOf([{ id: 'none' }, ...ROW_ZONES]));
     expect(rows.flat().map((zone) => zone.id)).not.toContain('none');
   });
 });
 
 describe('nextZoneInDirection', () => {
-  const ZONES_IN_ROWS = [
+  const ZONES_IN_ROWS = zonesOf([
     { id: 'a', box: { x: 10, y: 100, width: 20, height: 20 } },
     { id: 'b', box: { x: 200, y: 105, width: 20, height: 20 } },
     { id: 'c', box: { x: 15, y: 300, width: 20, height: 20 } },
     { id: 'd', box: { x: 190, y: 305, width: 20, height: 20 } },
-  ];
+  ]);
   const ROWS = zoneReadingOrder(ZONES_IN_ROWS);
 
   it('walks to the next zone of the row', () => {
@@ -710,17 +762,19 @@ describe('nextZoneInDirection', () => {
 
 describe('zoneShapes', () => {
   it('returns every fragment of a construction the plan draws in pieces', () => {
-    const shapes = zoneShapes({ polygon: RECTANGLE, fragments: [RECTANGLE, L_SHAPE] });
+    const shapes = zoneShapes(
+      zoneOf({ id: 'split', polygon: RECTANGLE, fragments: [RECTANGLE, L_SHAPE] }),
+    );
     expect(shapes).toHaveLength(2);
     expect(shapes[1]).toBe(L_SHAPE);
   });
 
   it('returns the polygon of a zone that carries no fragments', () => {
-    expect(zoneShapes({ polygon: RECTANGLE })).toEqual([RECTANGLE]);
+    expect(zoneShapes(zoneOf({ id: 'whole', polygon: RECTANGLE }))).toEqual([RECTANGLE]);
   });
 
   it('returns nothing for a zone without a shape', () => {
-    expect(zoneShapes({ id: 'ghost' })).toEqual([]);
+    expect(zoneShapes(zoneOf({ id: 'ghost' }))).toEqual([]);
   });
 });
 
@@ -778,8 +832,12 @@ describe('heightFor', () => {
   });
 
   it('reads the height from the name, never from the code', () => {
-    expect(heightFor({ code: '2K', name: 'Aula' })).toBe(heightFor({ name: 'Aula' }));
-    expect(heightFor({ code: 'AF', name: 'Centro de Información (Biblioteca)' })).toBe(16);
+    expect(heightFor(zoneOf({ id: 'a', code: '2K', name: 'Aula' }))).toBe(
+      heightFor(zoneOf({ id: 'b', name: 'Aula' })),
+    );
+    expect(
+      heightFor(zoneOf({ id: 'af', code: 'AF', name: 'Centro de Información (Biblioteca)' })),
+    ).toBe(16);
   });
 
   it('keeps every height above the floor that makes a volume readable', () => {
@@ -791,7 +849,7 @@ describe('heightFor', () => {
 });
 
 describe('extrudePolygon', () => {
-  const SQUARE = [
+  const SQUARE: Polygon = [
     [0, 0],
     [10, 0],
     [10, 10],

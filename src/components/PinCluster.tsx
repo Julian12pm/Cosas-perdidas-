@@ -34,7 +34,7 @@ function labelOf(group: ClusterGroup): string {
  */
 function positionOf(group: ClusterGroup): { x: number; y: number } {
   const zone = group.zoneId ? ZONE_BY_ID.get(group.zoneId) : null;
-  const centroid = zone ? polygonCentroid(zone.polygon) : null;
+  const centroid = zone ? polygonCentroid(zone.polygon ?? []) : null;
   if (!centroid) {
     const first = group.reports[0];
     return { x: first?.x ?? 0, y: first?.y ?? 0 };

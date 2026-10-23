@@ -23,7 +23,7 @@ import {
   type Origin,
   type ZoneDirection,
 } from '../map/geometry.ts';
-import type { MapImage, Point, Polygon, Vertex, Zone } from '../types.ts';
+import type { Box, MapImage, Point, Polygon, Vertex, Zone } from '../types.ts';
 
 /*
  * El croquis es un SVG que la app dibuja: el raster oscuro del plan es el
@@ -624,15 +624,15 @@ export default function CampusMap({
 
   /** The box a zone draws and the bigger box it can be hit on. */
   const zoneBoxes = useCallback(
-    (zone: Zone, measured: Fit) => {
-      const boxWidth = zone.box.width * measured.scale;
-      const boxHeight = zone.box.height * measured.scale;
+    (box: Box, measured: Fit) => {
+      const boxWidth = box.width * measured.scale;
+      const boxHeight = box.height * measured.scale;
       const minimum = MIN_HIT_SIZE / transform.scale;
       const width = Math.max(boxWidth, minimum);
       const height = Math.max(boxHeight, minimum);
       return {
-        left: ((zone.box.x * measured.scale - (width - boxWidth) / 2) / measured.width) * 100,
-        top: ((zone.box.y * measured.scale - (height - boxHeight) / 2) / measured.height) * 100,
+        left: ((box.x * measured.scale - (width - boxWidth) / 2) / measured.width) * 100,
+        top: ((box.y * measured.scale - (height - boxHeight) / 2) / measured.height) * 100,
         width: (width / measured.width) * 100,
         height: (height / measured.height) * 100,
         visualLeft: ((width - boxWidth) / 2 / width) * 100,
@@ -645,11 +645,11 @@ export default function CampusMap({
   );
 
   const anchorFor = useCallback(
-    (zone: Zone) => {
+    (box: Box) => {
       const width = image?.width ?? 0;
       if (!width) return 'left-1/2 -translate-x-1/2';
-      const left = (zone.box.x / width) * 100;
-      const right = left + (zone.box.width / width) * 100;
+      const left = (box.x / width) * 100;
+      const right = left + (box.width / width) * 100;
       if (left <= 12) return 'left-0';
       if (right >= 88) return 'right-0';
       return 'left-1/2 -translate-x-1/2';
@@ -804,7 +804,7 @@ export default function CampusMap({
             >
               {zones.map((zone) => {
                 if (!zone?.box) return null;
-                const boxes = zoneBoxes(zone, fit);
+                const boxes = zoneBoxes(zone.box, fit);
                 // La leyenda del croquis puede encender una zona: el edificio y
                 // su nombre se pintan para que se sepa cuál es.
                 const highlighted = zone.id === highlightZoneId;
@@ -866,7 +866,7 @@ export default function CampusMap({
                     >
                       <span
                         data-testid={`zone-name-${zone.id}`}
-                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone)} whitespace-nowrap rounded-md bg-surface-900/95 px-1.5 py-0.5 text-[12px] font-semibold text-brand-200 shadow-panel ring-1 ring-surface-600/70 transition-opacity duration-fast ${
+                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone.box)} whitespace-nowrap rounded-md bg-surface-900/95 px-1.5 py-0.5 text-[12px] font-semibold text-brand-200 shadow-panel ring-1 ring-surface-600/70 transition-opacity duration-fast ${
                           named
                             ? 'opacity-100'
                             : 'opacity-0 group-hover:opacity-100 group-focus:opacity-100'

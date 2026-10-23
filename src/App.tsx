@@ -1141,7 +1141,7 @@ export default function App() {
         return;
       }
 
-      const centroid = polygonCentroid(zone.polygon);
+      const centroid = polygonCentroid(zone.polygon ?? []);
       if (!centroid) return;
 
       cancelExit();

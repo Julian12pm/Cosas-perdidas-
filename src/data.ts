@@ -309,7 +309,7 @@ function positionOf(report: PublicReport | OwnerReport): { x: number; y: number 
 
   // Un reporte colocado por zona cae en el centro de la zona.
   const zone = ZONE_BY_ID.get(report.zone);
-  const centroid = zone ? polygonCentroid(zone.polygon) : null;
+  const centroid = zone ? polygonCentroid(zone.polygon ?? []) : null;
   if (!centroid) return { x: 0, y: 0 };
   const percent = artworkToPercent(centroid, MAP_IMAGE);
   return { x: round2(percent.x), y: round2(percent.y) };
