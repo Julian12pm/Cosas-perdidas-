@@ -156,14 +156,16 @@ export async function ensureServer(url = APP_URL) {
 
   const stop = async () => {
     if (child.exitCode !== null) return;
+    const pid = child.pid;
+    if (pid === undefined) return;
     try {
-      process.kill(-child.pid, 'SIGTERM');
+      process.kill(-pid, 'SIGTERM');
     } catch {
       /* el grupo de procesos ya no existe */
     }
     await sleep(1200);
     try {
-      process.kill(-child.pid, 'SIGKILL');
+      process.kill(-pid, 'SIGKILL');
     } catch {
       /* ya estaba muerto */
     }

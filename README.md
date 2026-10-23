@@ -116,6 +116,38 @@ type check).
 
 ---
 
+## CI
+
+Every push and every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml). A red
+step fails the build: there is no `continue-on-error` anywhere.
+
+| Step         | What it proves                                                         |
+| ------------ | ---------------------------------------------------------------------- |
+| `vp check`   | format, lint and types                                                 |
+| `vp test`    | the 350 unit tests                                                     |
+| `vp build`   | the production bundle                                                  |
+| Demo journey | the browser walkthrough on the mock data (`scripts/smoke-journey.mjs`) |
+| API journey  | the whole stack against a real Postgres 16 (`scripts/smoke-api.mjs`)   |
+
+Two things the CI does **not** do: it downloads no browser (the journeys drive the Chrome the
+runner already ships, through `CHROMIUM_PATH`) and it starts no container (the API journey walks
+against the `postgres:16` **service** of the workflow, with the migrations applied against it
+before the journey starts).
+
+The same scripts run on a laptop, unchanged:
+
+```bash
+vp exec node scripts/smoke-journey.mjs   # demo mode, mock data
+vp exec node scripts/smoke-api.mjs       # the whole stack (podman Postgres 16)
+```
+
+`CHROMIUM_PATH` says where the browser is (`/usr/bin/chromium` by default) and `DATABASE_URL` says
+which Postgres the API journey uses: without it the journey brings up the container of the compose
+file, with it the journey uses that database as it is and empties its own tables before it starts,
+so a second run begins from the same state.
+
+---
+
 ## Project layout
 
 ```
