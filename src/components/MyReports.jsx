@@ -88,7 +88,7 @@ export default function MyReports({
                 <li
                   key={report.id}
                   data-testid={`my-report-${report.id}`}
-                  className="rounded-2xl border border-surface-600/50 bg-surface-800 p-4 shadow-lg"
+                  className="surface-panel p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -134,7 +134,7 @@ export default function MyReports({
                   </dl>
 
                   {isLost && report.releaseKey && (
-                    <div className="mt-3 rounded-xl border border-brand-500/30 bg-brand-500/10 p-3">
+                    <div className="surface-accent mt-3 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-brand-200">
                         Tu clave de liberación
                       </p>
@@ -152,14 +152,14 @@ export default function MyReports({
                   )}
 
                   {isLost && !report.releaseKey && apiMode && (
-                    <p className="mt-3 rounded-xl border border-surface-600/40 bg-surface-700/30 p-3 text-xs leading-relaxed text-text-muted">
+                    <p className="surface-inset mt-3 p-3 text-xs leading-relaxed text-text-muted">
                       La clave de liberación se mostró una sola vez, al publicar el reporte: el
                       servidor no la vuelve a dar. Si la perdiste, publica un reporte nuevo.
                     </p>
                   )}
 
                   {!isLost && report.blindDetail && (
-                    <div className="mt-3 rounded-xl border border-surface-600/50 bg-surface-700/40 p-3">
+                    <div className="surface-inset mt-3 p-3">
                       <p className="text-xs font-semibold uppercase tracking-wide text-surface-300">
                         Dato ciego (privado)
                       </p>

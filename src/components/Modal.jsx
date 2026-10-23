@@ -141,7 +141,7 @@ export default function Modal({ open, onClose, title, description, children, foo
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
         onKeyDown={onKeyDown}
-        className="relative flex max-h-[calc(90dvh_-_var(--keyboard,0px))] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-surface-600/50 bg-surface-800 shadow-2xl animate-modal-in focus:outline-none"
+        className="relative flex max-h-[calc(90dvh_-_var(--keyboard,0px))] w-full max-w-md flex-col overflow-hidden surface-panel animate-modal-in focus:outline-none"
       >
         <div className="px-4 pt-4 pb-3 sm:px-6 sm:pt-5 sm:pb-4">
           <h2 id={titleId} className="text-lg font-bold text-white">
@@ -157,7 +157,7 @@ export default function Modal({ open, onClose, title, description, children, foo
         <div className="px-4 pb-4 overflow-y-auto sm:px-6 sm:pb-5">{children}</div>
 
         {footer && (
-          <div className="border-t border-surface-600/40 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-4">
+          <div className="border-t border-surface-700 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-4">
             {footer}
           </div>
         )}

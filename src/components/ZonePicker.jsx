@@ -79,7 +79,7 @@ export default function ZonePicker({ zones, onSelect, state = 'ready' }) {
     <div ref={containerRef} className="relative w-full max-w-2xl">
       <div
         data-testid="picker-trigger"
-        className="flex items-center gap-2 rounded-xl border border-surface-600/60 bg-surface-800/80 px-3 py-2 transition-colors focus-within:border-brand-500/70 focus-within:ring-2 focus-within:ring-focus"
+        className="flex items-center gap-2 rounded-xl border border-input-border bg-surface-700/50 px-3 py-2 transition-colors focus-within:border-brand-500/70 focus-within:ring-2 focus-within:ring-focus"
       >
         <MagnifierIcon size={16} className="shrink-0 text-text-muted" aria-hidden="true" />
         <input
@@ -119,7 +119,7 @@ export default function ZonePicker({ zones, onSelect, state = 'ready' }) {
           ref={listRef}
           role="listbox"
           aria-label="Zonas del campus"
-          className="absolute z-30 mt-2 max-h-[min(18rem,60dvh)] w-full overflow-y-auto rounded-xl border border-surface-600/60 bg-surface-800/95 shadow-2xl backdrop-blur"
+          className="surface-panel absolute z-30 mt-2 max-h-[min(18rem,60dvh)] w-full overflow-y-auto"
         >
           {results.length === 0 ? (
             state === 'ready' ? (

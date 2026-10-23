@@ -143,7 +143,7 @@ function MapPin({ report, onClick }) {
       />
       <div className="relative flex flex-col items-center">
         <div
-          className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/80 shadow-lg transition-all duration-300 group-hover:scale-125 group-hover:shadow-xl ${
+          className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/80 transition-all duration-300 group-hover:scale-125 ${
             isLost ? 'bg-pin-red animate-pin-pulse' : 'bg-pin-green animate-pin-pulse-green'
           }`}
         >
@@ -155,7 +155,7 @@ function MapPin({ report, onClick }) {
           }`}
         />
       </div>
-      <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-surface-900/95 px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-xl backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100">
+      <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-surface-900/95 px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-panel backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100">
         <span
           className={`inline-flex items-center gap-1 ${isLost ? 'text-red-400' : 'text-green-400'}`}
         >
@@ -215,7 +215,7 @@ function PinTypeModal({ pending, onClose, onSelect }) {
         </button>
       }
     >
-      <p className="mb-3 flex items-center gap-1.5 rounded-lg bg-surface-700/40 p-2.5 text-sm text-surface-300">
+      <p className="surface-row mb-3 flex items-center gap-1.5 p-2.5 text-sm text-surface-300">
         <MapPointIcon size={16} className="shrink-0" aria-hidden="true" />
         Se marcará en:{' '}
         <span className="font-semibold text-white">{pending?.zone?.label ?? 'terreno libre'}</span>
@@ -228,7 +228,7 @@ function PinTypeModal({ pending, onClose, onSelect }) {
           onClick={() => onSelect('lost')}
           className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-red-500/20 bg-red-500/10 p-4 transition-all duration-300 hover:border-red-500/40 hover:bg-red-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pin-red shadow-lg shadow-red-500/25 transition-transform group-hover:scale-110">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pin-red transition-transform group-hover:scale-110">
             <span className="text-lg text-white">?</span>
           </div>
           <div className="text-left">
@@ -246,7 +246,7 @@ function PinTypeModal({ pending, onClose, onSelect }) {
           onClick={() => onSelect('found')}
           className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-green-500/20 bg-green-500/10 p-4 transition-all duration-300 hover:border-green-500/40 hover:bg-green-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pin-green shadow-lg shadow-green-500/25 transition-transform group-hover:scale-110">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pin-green transition-transform group-hover:scale-110">
             <span className="text-lg text-white">✓</span>
           </div>
           <div className="text-left">
@@ -331,7 +331,7 @@ function ReleaseKeyModal({ report, onClose }) {
       description="Cópiala: es la que dicta el dueño del objeto perdido."
       testId="release-key-dialog"
     >
-      <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-4 text-center">
+      <div className="surface-accent p-4 text-center">
         <p
           data-testid="release-key-value"
           className="font-mono text-3xl tracking-[0.4em] text-white sm:text-4xl"
@@ -469,7 +469,7 @@ function ClaimModal({ report, foundReports, onClose, onSubmit }) {
           type="submit"
           data-testid="claim-submit"
           disabled={!ready || sending}
-          className="sticky bottom-0 inline-flex min-h-[44px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-lg transition-all disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="sticky bottom-0 inline-flex min-h-[44px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-panel transition-all disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           {sending ? 'Enviando…' : 'Enviar el reclamo'}
         </button>
@@ -573,9 +573,7 @@ export function PinInfoModal({
     >
       <div className="space-y-3">
         {report.description && (
-          <p className="rounded-xl border border-surface-600/30 bg-surface-700/30 p-3 text-sm text-surface-300">
-            {report.description}
-          </p>
+          <p className="surface-inset p-3 text-sm text-surface-300">{report.description}</p>
         )}
 
         <div className="flex flex-wrap justify-between gap-2 text-xs text-text-muted">
@@ -590,7 +588,7 @@ export function PinInfoModal({
         </div>
 
         {isMine && !isLost && report.blindDetail && (
-          <div className="rounded-xl border border-surface-600/50 bg-surface-700/40 p-3">
+          <div className="surface-inset p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-surface-300">
               Dato ciego (sólo tú lo ves)
             </p>
@@ -614,7 +612,7 @@ export function PinInfoModal({
         )}
 
         {apiMode && isMine && !isLost && (
-          <div className="rounded-xl border border-surface-600/50 bg-surface-700/40 p-3">
+          <div className="surface-row p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-surface-300">
               Punto seguro
             </p>
@@ -659,7 +657,7 @@ export function PinInfoModal({
         )}
 
         {isMine && isLost && report.releaseKey && (
-          <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-3">
+          <div className="surface-accent p-3">
             <div className="flex items-center gap-2">
               <LockKeyholeIcon size={16} className="shrink-0" aria-hidden="true" />
               <h3 className="text-sm font-semibold text-white">Tu clave de liberación</h3>
@@ -690,7 +688,7 @@ export function PinInfoModal({
         )}
 
         {isMine && !isLost && linked && (
-          <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-3">
+          <div className="surface-accent p-3">
             <div className="flex items-center gap-2">
               <LockKeyholeIcon size={16} className="shrink-0" aria-hidden="true" />
               <h3 className="text-sm font-semibold text-white">Confirmar la entrega</h3>
@@ -739,7 +737,7 @@ export function PinInfoModal({
                 </p>
                 {/* La acción se queda pegada al borde inferior del diálogo: con el
                     teclado abierto el botón no puede quedar debajo del pliegue. */}
-                <div className="sticky bottom-0 z-10 mt-2 flex gap-2 bg-surface-800 py-2">
+                <div className="sticky bottom-0 z-10 mt-2 flex gap-2 bg-panel py-2">
                   <input
                     id={codeId}
                     data-testid="release-key-input"
@@ -782,7 +780,7 @@ export function PinInfoModal({
         )}
 
         {isMine && !isLost && !linked && (
-          <p className="rounded-xl border border-surface-600/40 bg-surface-700/30 p-3 text-xs leading-relaxed text-text-muted">
+          <p className="surface-inset p-3 text-xs leading-relaxed text-text-muted">
             Cuando el dueño apruebe tu reclamo te dictará la clave para confirmar la entrega.
           </p>
         )}
@@ -1557,7 +1555,7 @@ export default function App() {
               ) : screenState === 'loading' ? (
                 <div
                   aria-hidden="true"
-                  className="aspect-[700/647] w-full max-w-2xl rounded-xl border-2 border-surface-700 bg-surface-800"
+                  className="aspect-[700/647] surface-panel w-full max-w-2xl"
                 />
               ) : (
                 <CampusMap

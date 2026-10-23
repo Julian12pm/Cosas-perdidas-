@@ -126,6 +126,89 @@
   --color-relief-safe-base: #1f1409;
   --color-relief-safe-code: #2a1a05;
   --color-relief-safe-mark: #fbd08a;
+
+  /**
+   * Superficies — la receta única del producto.
+   *
+   * Antes cada panel declaraba su propio relleno, borde, radio y sombra, y
+   * el resultado eran seis rellenos y cuatro opacidades para el mismo papel.
+   * Ahora el papel lo dice el token y el componente lo usa:
+   *
+   *   panel  — el contenedor de primer nivel (la tarjeta de reporte, el
+   *            diálogo, la leyenda, el marco del croquis, la tarjeta de
+   *            acceso): radio 2xl, fondo surface-800, borde surface-600/50 y
+   *            la única elevación del producto;
+   *   row    — la pieza levantada dentro de un panel (la entrada del grupo
+   *            de pines): radio xl, fondo surface-700/40, sin sombra;
+   *   inset  — el bloque callado dentro de un panel o de una fila (el dato
+   *            ciego, la clave de liberación): radio lg, fondo surface-800/70,
+   *            sin sombra;
+   *   accent — la cuarta receta, la de marca (la tarjeta de contacto, la
+   *            clave de liberación): el mismo borde de marca al 30% y el
+   *            relleno al 10%.
+   */
+  --radius-panel: 1rem;
+  --radius-row: 0.75rem;
+  --radius-inset: 0.5rem;
+  --color-panel: var(--color-surface-800);
+  --color-panel-border: color-mix(in srgb, var(--color-surface-600) 50%, transparent);
+  --color-panel-row: color-mix(in srgb, var(--color-surface-700) 40%, transparent);
+  --color-panel-inset: color-mix(in srgb, var(--color-surface-800) 70%, transparent);
+  --color-accent: color-mix(in srgb, var(--color-brand-500) 10%, transparent);
+  --color-accent-border: color-mix(in srgb, var(--color-brand-500) 30%, transparent);
+  --shadow-panel: 0 12px 24px -12px rgb(0 0 0 / 0.55), 0 4px 8px -4px rgb(0 0 0 / 0.45);
+
+  /**
+   * Movimiento — la escala.
+   *
+   * Cuatro duraciones y dos curvas, y nada más: una transición que no dice
+   * de dónde sale su tiempo dice que no hay regla detrás. `fast` es el
+   * cambio de estado de un control (150 ms, el mismo default de Tailwind),
+   * `base` el de una superficie (200 ms), `slow` el de un cambio de estado
+   * visible (300 ms) y `entrance` el de una entrada (500 ms). La curva de
+   * entrada es el bezier que ya usaba todo el producto; la de salida se
+   * declara para que el diálogo se vaya por donde entró.
+   */
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 300ms;
+  --duration-entrance: 500ms;
+  --ease-entrance: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/**
+ * Los papeles de superficie, como clases.
+ *
+ * Un componente no vuelve a declarar relleno, borde, radio ni sombra: dice
+ * qué papel es. El CSS plano y las utilidades de Tailwind no se pelean por
+ * estas cuatro propiedades porque aquí nadie las usa.
+ */
+@layer components {
+  .surface-panel {
+    border-radius: var(--radius-panel);
+    border: 1px solid var(--color-panel-border);
+    background-color: var(--color-panel);
+    box-shadow: var(--shadow-panel);
+  }
+
+  .surface-row {
+    border-radius: var(--radius-row);
+    border: 1px solid var(--color-panel-border);
+    background-color: var(--color-panel-row);
+  }
+
+  .surface-inset {
+    border-radius: var(--radius-inset);
+    border: 1px solid var(--color-panel-border);
+    background-color: var(--color-panel-inset);
+  }
+
+  .surface-accent {
+    border-radius: var(--radius-inset);
+    border: 1px solid var(--color-accent-border);
+    background-color: var(--color-accent);
+  }
 }
 
 /**

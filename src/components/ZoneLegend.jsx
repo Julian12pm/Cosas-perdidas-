@@ -111,7 +111,7 @@ export default function ZoneLegend({ zones = [], onSelect, onHover }) {
     <section
       data-testid="zone-legend"
       aria-labelledby={headingId}
-      className="w-full rounded-2xl border border-surface-600/50 bg-surface-800 p-4 shadow-lg"
+      className="surface-panel w-full p-4"
     >
       <div>
         <h2 id={headingId} className="flex items-center gap-2 text-base font-bold text-white">
@@ -172,7 +172,7 @@ export default function ZoneLegend({ zones = [], onSelect, onHover }) {
         </div>
 
         {rows.length === 0 ? (
-          <p className="mt-3 rounded-xl border border-surface-600/50 bg-surface-700/40 p-3 text-sm leading-relaxed text-text-muted">
+          <p className="surface-inset mt-3 p-3 text-sm leading-relaxed text-text-muted">
             Ninguna zona coincide con «{query.trim()}». Prueba con la clave (2K, AF) o con el nombre
             del edificio.
           </p>
