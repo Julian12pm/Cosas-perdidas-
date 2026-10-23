@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import { PinIcon } from '@solar-icons/react/bold/pin';
 import { reporterAlias } from '../data.ts';
+import type { ReportDraft, ReportKind, Session } from '../types.ts';
 
 /*
  * El formulario de reporte sirve para los dos pines: el rojo y el verde. Lo
@@ -9,7 +10,7 @@ import { reporterAlias } from '../data.ts';
  */
 
 /** La tarjeta que dice quién publica: la identidad es el correo institucional. */
-function ReporterCard({ session }) {
+function ReporterCard({ session }: { session: Session }) {
   return (
     <div className="surface-inset p-3">
       <p className="text-xs uppercase tracking-wide text-text-muted">Publica</p>
@@ -24,7 +25,17 @@ function ReporterCard({ session }) {
   );
 }
 
-export default function ReportForm({ kind, session, onSubmit, offline = false }) {
+export default function ReportForm({
+  kind,
+  session,
+  onSubmit,
+  offline = false,
+}: {
+  kind: ReportKind;
+  session: Session;
+  onSubmit: (draft: ReportDraft) => void;
+  offline?: boolean;
+}) {
   const [item, setItem] = useState('');
   const [description, setDescription] = useState('');
   const [blindDetail, setBlindDetail] = useState('');
@@ -36,13 +47,13 @@ export default function ReportForm({ kind, session, onSubmit, offline = false })
   const ready =
     item.trim() !== '' && description.trim() !== '' && (!isFound || blindDetail.trim() !== '');
 
-  const handleSubmit = (event) => {
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ready) return;
     onSubmit({
       item: item.trim(),
       description: description.trim(),
-      blindDetail: isFound ? blindDetail.trim() : '',
+      blindDetail: blindDetail.trim(),
     });
   };
 

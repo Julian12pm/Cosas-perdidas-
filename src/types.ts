@@ -18,7 +18,15 @@ import type { ContactCard } from '#domain/blind-report';
 import type { ClaimStatus, ReportKind, ReportStatus } from '#domain/claims';
 import type { SessionUser } from '#auth/session';
 
-export type { ClaimStatus, ContactCard, ReportKind, ReportStatus, SessionUser };
+export type { ClaimStatus, ReportKind, ReportStatus, SessionUser };
+export type { ContactCard as Contact } from '#domain/blind-report';
+
+/** Lo que el formulario de reporte entrega: el objeto, la descripción y el dato ciego. */
+export interface ReportDraft {
+  item: string;
+  description: string;
+  blindDetail: string;
+}
 
 /** El reclamo tal como lo lista la bandeja: el resumen que devuelve el API. */
 export type ClaimSummary = z.infer<typeof claimSummarySchema>;

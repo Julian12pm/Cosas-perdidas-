@@ -13,16 +13,16 @@ import { ShieldCheckIcon } from '@solar-icons/react/bold/shield-check';
 import { UserIcon } from '@solar-icons/react/bold/user';
 import CampusMap from './components/CampusMap.jsx';
 import ClaimInbox from './components/ClaimInbox.jsx';
-import ContactCard from './components/ContactCard.jsx';
-import LoginScreen from './components/LoginScreen.jsx';
+import ContactCard from './components/ContactCard.tsx';
+import LoginScreen from './components/LoginScreen.tsx';
 import Modal from './components/Modal.jsx';
 import MyReports from './components/MyReports.jsx';
-import OfflineBanner from './components/OfflineBanner.jsx';
+import OfflineBanner from './components/OfflineBanner.tsx';
 import PinCluster, { PinClusterList, clusterByZone } from './components/PinCluster.jsx';
-import ReportForm from './components/ReportForm.jsx';
+import ReportForm from './components/ReportForm.tsx';
 import ZoneLegend from './components/ZoneLegend.jsx';
 import ZonePicker from './components/ZonePicker.jsx';
-import { ErrorState, LoadingState } from './components/StateMessage.jsx';
+import { ErrorState, LoadingState } from './components/StateMessage.tsx';
 import {
   confirmDelivery,
   createMatch,

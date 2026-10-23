@@ -1,7 +1,8 @@
 import { useId, useState } from 'react';
 import { MapPointIcon } from '@solar-icons/react/bold/map-point';
 import { INSTITUTIONAL_DOMAINS, MOCK_SESSION, isInstitutionalEmail } from '../data.ts';
-import { isApiConfigured, requestMagicLink } from '../api.ts';
+import { isApiConfigured, requestMagicLink, ApiError } from '../api.ts';
+import type { Session } from '../types.ts';
 
 /*
  * El acceso es institucional: no hay registro anónimo ni contraseña, sólo un
@@ -18,10 +19,21 @@ const EXPIRED_MESSAGE =
 /** El dominio institucional, en el texto que el estudiante lee. */
 const DOMAIN_HINT = INSTITUTIONAL_DOMAINS.map((domain) => `@${domain}`).join(' o ');
 
-export default function LoginScreen({ onAuthenticated, expired = false, offline = false }) {
+/** Los estados del formulario de acceso. */
+type LoginStatus = 'idle' | 'sending' | 'sent' | 'error' | 'expired';
+
+export default function LoginScreen({
+  onAuthenticated,
+  expired = false,
+  offline = false,
+}: {
+  onAuthenticated: (session: Session) => void;
+  expired?: boolean;
+  offline?: boolean;
+}) {
   const [email, setEmail] = useState('');
   // idle | sending | sent | error | expired
-  const [status, setStatus] = useState(expired ? 'expired' : 'idle');
+  const [status, setStatus] = useState<LoginStatus>(expired ? 'expired' : 'idle');
   const [message, setMessage] = useState(expired ? EXPIRED_MESSAGE : '');
 
   const emailId = useId();
@@ -31,7 +43,7 @@ export default function LoginScreen({ onAuthenticated, expired = false, offline 
   const demoMode = !isApiConfigured();
   const failed = status === 'error' || status === 'expired';
 
-  const handleSubmit = async (event) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const address = email.trim();
 
@@ -60,9 +72,10 @@ export default function LoginScreen({ onAuthenticated, expired = false, offline 
       setStatus('error');
       // El cliente sabe qué pasó: sin red no es un fallo del servidor, y un
       // buzón que no es institucional se dice como lo que es.
-      if (error?.kind === 'offline') {
+      const failure = error instanceof ApiError ? error : null;
+      if (failure?.kind === 'offline') {
         setMessage('No pudimos conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.');
-      } else if (error?.payload?.error === 'not_institutional') {
+      } else if (failure?.payload?.error === 'not_institutional') {
         setMessage(
           `El acceso es sólo para el correo institucional del TECNM: termina en ${DOMAIN_HINT}.`,
         );
