@@ -1,7 +1,7 @@
 import type { OwnerReport, PublicReport } from '#domain/blind-report';
 import { getContactCard, getReport, isApiConfigured, listInbox, listReports } from './api.ts';
 import { artworkToPercent, polygonCentroid } from './map/geometry.ts';
-import { MAP_IMAGE, ZONE_BY_ID } from './map/zones.ts';
+import { MAP_SPACE, ZONE_BY_ID } from './map/zones.ts';
 import type { Claim, ClaimSummary, Contact, Report, ReportStatus, Session } from './types.ts';
 
 // Longitud de la clave de liberación: el dueño del objeto la dicta al
@@ -125,7 +125,7 @@ function pinSpot(zoneId: string): { x: number; y: number } {
   const zone = ZONE_BY_ID.get(zoneId);
   const centroid = zone?.polygon ? polygonCentroid(zone.polygon) : null;
   if (!centroid) throw new Error(`la zona de arranque ${zoneId} no tiene centro`);
-  const percent = artworkToPercent(centroid, MAP_IMAGE);
+  const percent = artworkToPercent(centroid, MAP_SPACE);
   return { x: round2(percent.x), y: round2(percent.y) };
 }
 
@@ -314,7 +314,7 @@ function positionOf(report: PublicReport | OwnerReport): { x: number; y: number 
   const x = 'map_x' in report ? Number(report.map_x) : Number.NaN;
   const y = 'map_y' in report ? Number(report.map_y) : Number.NaN;
   if (Number.isFinite(x) && Number.isFinite(y)) {
-    const percent = artworkToPercent({ x, y }, MAP_IMAGE);
+    const percent = artworkToPercent({ x, y }, MAP_SPACE);
     return { x: round2(percent.x), y: round2(percent.y) };
   }
 
@@ -322,7 +322,7 @@ function positionOf(report: PublicReport | OwnerReport): { x: number; y: number 
   const zone = ZONE_BY_ID.get(report.zone);
   const centroid = zone ? polygonCentroid(zone.polygon ?? []) : null;
   if (!centroid) return { x: 0, y: 0 };
-  const percent = artworkToPercent(centroid, MAP_IMAGE);
+  const percent = artworkToPercent(centroid, MAP_SPACE);
   return { x: round2(percent.x), y: round2(percent.y) };
 }
 

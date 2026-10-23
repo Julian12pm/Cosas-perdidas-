@@ -325,10 +325,15 @@ export function zoneAtPoint(
   const light = options.light ?? LIGHT;
 
   if (scale > 0) {
+    // Only the constructions HAVE a roof: the parkings, the meeting points
+    // and the internet modules are flat, and a roof that does not exist
+    // would swallow the building next to it. The roof is the one that is
+    // DRAWN (the wall of the building, capped by its own size), so what
+    // the finger lands on is what the finger touches.
     const roof = matchZone(
       point,
-      zones,
-      (shape, zone) => extrudePolygon(shape, heightFor(zone), scale, light).top,
+      (zones ?? []).filter((zone) => zone.kind === 'building'),
+      (shape, zone) => extrudePolygon(shape, wallHeightPx(zone, shape, scale), scale, light).top,
     );
     if (roof) return roof;
   }

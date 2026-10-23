@@ -59,9 +59,14 @@ export interface Box {
   height: number;
 }
 
-/** La imagen del croquis y su tamaño natural. */
-export interface MapImage {
-  src: string;
+/**
+ * El espacio del croquis y su tamaño natural.
+ *
+ * El artwork ya no es una imagen: es un vector (la escena del campus y los
+ * volúmenes que se levantan sobre ella), así que el espacio sólo necesita
+ * su tamaño. Los pines se guardan como porcentajes de este espacio.
+ */
+export interface MapSpace {
   width: number;
   height: number;
 }

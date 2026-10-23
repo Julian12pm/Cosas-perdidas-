@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { EmptyState, ErrorState, LoadingState } from './StateMessage.tsx';
+import { EmptyState } from './StateMessage.tsx';
 import {
   LIGHT,
   clampTransform,
@@ -25,11 +25,12 @@ import {
   type Origin,
   type ZoneDirection,
 } from '../map/geometry.ts';
-import type { Box, MapImage, Point, Polygon, Vertex, Zone } from '../types.ts';
+import type { Box, MapSpace, Point, Polygon, Vertex, Zone } from '../types.ts';
+import { SCENE, type SceneLayer } from '../map/scene.ts';
 
 /*
- * El croquis es un SVG que la app dibuja: el raster oscuro del plan es el
- * suelo (trae las praderas, las calles y los rótulos impresos) y encima se
+ * El croquis es un SVG que la app dibuja: el suelo es la ESCENA (una forma
+ * trazada por el generador desde los colores del plano oficial) y encima se
  * levantan los volúmenes de las construcciones con una sola luz, la de arriba
  * a la izquierda.
  *
@@ -90,6 +91,20 @@ const TONES = {
   flat: 'var(--color-relief-flat)',
   flatEdge: 'var(--color-relief-flat-edge)',
   shadow: 'var(--color-relief-shadow)',
+};
+
+/**
+ * The tones of the ground: the campus the volumes stand on. The scene is
+ * traced from the plan's own colour classes, so these are the plan's tones
+ * re-stepped for the dark palette. They live in `src/index.css` as project
+ * tokens; here they are only the roles they play.
+ */
+const GROUND: Record<SceneLayer, string> = {
+  surface: 'var(--color-ground-surface)',
+  green: 'var(--color-ground-green)',
+  track: 'var(--color-ground-track)',
+  court: 'var(--color-ground-court)',
+  lot: 'var(--color-ground-lot)',
 };
 
 /**
@@ -192,22 +207,20 @@ interface Flat {
 
 export default function CampusMap({
   zones = [],
-  image,
+  space,
   onSelectZone,
   onPick,
   highlightZoneId = null,
   children,
   empty = false,
-  offline = false,
 }: {
   zones?: Zone[];
-  image?: MapImage;
+  space?: MapSpace;
   onSelectZone?: (zone: Zone | null) => void;
   onPick?: (point: Point) => void;
   highlightZoneId?: string | null;
   children?: ReactNode;
   empty?: boolean;
-  offline?: boolean;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -221,32 +234,18 @@ export default function CampusMap({
   const [transform, setTransform] = useState<MapTransform>(INITIAL_TRANSFORM);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // El croquis es un archivo: se descarga, se dibuja y a veces no llega.
-  const [raster, setRaster] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [attempt, setAttempt] = useState(0);
 
   /** The artwork of the plan: the same coordinate space as the catalogue. */
   const artwork = useMemo(
-    () => ({ width: image?.width ?? 700, height: image?.height ?? 647 }),
-    [image?.width, image?.height],
+    () => ({ width: space?.width ?? 700, height: space?.height ?? 647 }),
+    [space?.width, space?.height],
   );
-  const rasterSrc = image?.src ?? '/mapa-itm-dark.png';
 
   /** Replaces the transform and keeps the ref in sync with the state. */
   const applyTransform = useCallback((compute: (current: MapTransform) => MapTransform) => {
     const next = compute(transformRef.current);
     transformRef.current = next;
     setTransform(next);
-  }, []);
-
-  /**
-   * The ground of the croquis: the SVG's `<image>` fires load and error, so
-   * the croquis still knows when the artwork arrived and when it did not.
-   */
-  const attachGround = useCallback((node: SVGImageElement | null) => {
-    if (!node) return;
-    node.addEventListener('load', () => setRaster('ready'));
-    node.addEventListener('error', () => setRaster('error'));
   }, []);
 
   /**
@@ -552,8 +551,8 @@ export default function CampusMap({
       }
       // The athletics track is NOT painted as a flat zone: its polygon is
       // the box around the oval, not the oval, and filling it would erase
-      // the infield. The raster paints the track, because the raster draws
-      // the oval of the plan.
+      // the infield. The scene paints the track, because the scene traces
+      // the oval of the plan as a ring.
       if (zone.kind === 'track') continue;
       if (zone.kind !== 'building') continue;
 
@@ -683,7 +682,7 @@ export default function CampusMap({
 
   const anchorFor = useCallback(
     (box: Box) => {
-      const width = image?.width ?? 0;
+      const width = space?.width ?? 0;
       if (!width) return 'left-1/2 -translate-x-1/2';
       const left = (box.x / width) * 100;
       const right = left + (box.width / width) * 100;
@@ -691,7 +690,7 @@ export default function CampusMap({
       if (right >= 88) return 'right-0';
       return 'left-1/2 -translate-x-1/2';
     },
-    [image?.width],
+    [space?.width],
   );
 
   return (
@@ -722,16 +721,18 @@ export default function CampusMap({
               : undefined
           }
         >
-          {/* El suelo: el raster oscuro del plan. */}
-          <image
-            key={attempt}
-            ref={attachGround}
-            href={rasterSrc}
-            x="0"
-            y="0"
-            width={artwork.width}
-            height={artwork.height}
-          />
+          {/* El suelo: la ESCENA del campus, trazada desde el plano oficial. */}
+          <g data-layer="ground">
+            {SCENE.map((shape, index) => (
+              <path
+                key={`${shape.layer}-${index}`}
+                data-ground={shape.layer}
+                d={shape.rings.map((ring) => polygonPath(ring)).join(' ')}
+                fill={GROUND[shape.layer]}
+                fillRule="evenodd"
+              />
+            ))}
+          </g>
 
           {/* Las zonas planas: los estacionamientos. */}
           <g data-layer="flats">
@@ -835,7 +836,7 @@ export default function CampusMap({
           </g>
         </svg>
 
-        {fit && raster !== 'error' && (
+        {fit && (
           <div
             className="absolute pointer-events-none"
             style={{
@@ -941,31 +942,7 @@ export default function CampusMap({
           </div>
         )}
 
-        {raster === 'loading' && (
-          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-4">
-            <LoadingState
-              compact
-              title="Cargando el croquis…"
-              description="El plano del campus se está descargando."
-            />
-          </div>
-        )}
-
-        {raster === 'error' && !offline && (
-          <div className="absolute inset-0 z-30 flex items-center justify-center p-4">
-            <ErrorState
-              compact
-              title="No se pudo cargar el croquis"
-              description="La imagen del plano no llegó. Revisa tu conexión e inténtalo de nuevo."
-              onRetry={() => {
-                setRaster('loading');
-                setAttempt((value) => value + 1);
-              }}
-            />
-          </div>
-        )}
-
-        {raster === 'ready' && empty && (
+        {empty && (
           <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-4">
             <EmptyState
               compact

@@ -13,9 +13,9 @@
 // box, or with a polygon of the wrong shape, does not compile) instead of
 // merely describing it.
 
-import type { MapImage, Zone } from '../types.ts';
+import type { MapSpace, Zone } from '../types.ts';
 
-export const MAP_IMAGE: MapImage = { src: '/mapa-itm-dark.png', width: 700, height: 647 };
+export const MAP_SPACE: MapSpace = { width: 700, height: 647 };
 
 export const ZONES: Zone[] = [
   {
