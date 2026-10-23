@@ -4,7 +4,9 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
   fmt: { singleQuote: true, semi: true },
-  test: { include: ['src/**/*.test.js', 'api/**/*.test.ts'] },
+  // Hasta que cada prueba esté en TypeScript, el patrón acepta las dos
+  // extensiones: cuando termine la migración, aquí sólo queda `.ts`.
+  test: { include: ['src/**/*.test.{js,ts}', 'api/**/*.test.ts'] },
   lint: {
     jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
     rules: { 'vite-plus/prefer-vite-plus-imports': 'error' },

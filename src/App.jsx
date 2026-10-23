@@ -34,7 +34,7 @@ import {
   getMe,
   isApiConfigured,
   logout,
-} from './api.js';
+} from './api.ts';
 import {
   RELEASE_KEY_LENGTH,
   RELEASE_KEY_MAX_ATTEMPTS,

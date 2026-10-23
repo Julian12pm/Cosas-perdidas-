@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import { MapPointIcon } from '@solar-icons/react/bold/map-point';
 import { INSTITUTIONAL_DOMAINS, MOCK_SESSION, isInstitutionalEmail } from '../data.js';
-import { isApiConfigured, requestMagicLink } from '../api.js';
+import { isApiConfigured, requestMagicLink } from '../api.ts';
 
 /*
  * El acceso es institucional: no hay registro anónimo ni contraseña, sólo un
