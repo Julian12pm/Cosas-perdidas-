@@ -145,7 +145,7 @@ export function PinClusterList({ group, onClose, onOpenReport }) {
                 type="button"
                 data-testid={`pin-cluster-entry-${report.id}`}
                 onClick={() => onOpenReport(report)}
-                className="surface-row flex min-h-[44px] w-full cursor-pointer items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-surface-700/80 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="surface-row flex min-h-[44px] w-full cursor-pointer items-center gap-3 px-3 py-2 text-left transition-colors duration-fast hover:bg-surface-700/80 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 <span
                   className={`inline-flex shrink-0 items-center gap-1 text-xs font-semibold ${

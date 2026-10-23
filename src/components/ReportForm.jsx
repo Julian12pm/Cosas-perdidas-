@@ -122,7 +122,7 @@ export default function ReportForm({ kind, session, onSubmit, offline = false })
         type="submit"
         data-testid="report-submit"
         disabled={!ready || offline}
-        className={`sticky bottom-0 inline-flex min-h-[44px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-3 font-semibold text-white shadow-panel transition-all disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+        className={`sticky bottom-0 inline-flex min-h-[44px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-3 font-semibold text-white shadow-panel transition-[background-image] duration-base disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
           isFound
             ? 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600'
             : 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600'

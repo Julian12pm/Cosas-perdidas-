@@ -79,7 +79,7 @@ export default function ZonePicker({ zones, onSelect, state = 'ready' }) {
     <div ref={containerRef} className="relative w-full max-w-2xl">
       <div
         data-testid="picker-trigger"
-        className="flex items-center gap-2 rounded-xl border border-input-border bg-surface-700/50 px-3 py-2 transition-colors focus-within:border-brand-500/70 focus-within:ring-2 focus-within:ring-focus"
+        className="flex items-center gap-2 rounded-xl border border-input-border bg-surface-700/50 px-3 py-2 transition-colors duration-fast focus-within:border-brand-500/70 focus-within:ring-2 focus-within:ring-focus"
       >
         <MagnifierIcon size={16} className="shrink-0 text-text-muted" aria-hidden="true" />
         <input
@@ -152,7 +152,7 @@ export default function ZonePicker({ zones, onSelect, state = 'ready' }) {
                 onMouseEnter={() => setActiveIndex(index)}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => select(zone)}
-                className={`flex min-h-[44px] cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sm transition-colors ${
+                className={`flex min-h-[44px] cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sm transition-colors duration-fast ${
                   index === activeIndex
                     ? 'bg-brand-500/20 text-white'
                     : 'text-surface-200 hover:bg-surface-700/60'

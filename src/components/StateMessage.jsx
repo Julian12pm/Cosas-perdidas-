@@ -34,7 +34,7 @@ function StateBody({ icon, title, description, action, tone = 'muted' }) {
         <button
           type="button"
           onClick={action.onClick}
-          className="mt-1 min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-1 min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors duration-fast hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           {action.label}
         </button>

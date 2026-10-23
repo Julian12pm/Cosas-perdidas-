@@ -135,7 +135,7 @@ export default function LoginScreen({ onAuthenticated, expired = false, offline 
             type="submit"
             data-testid="login-submit"
             disabled={status === 'sending' || offline}
-            className="min-h-[44px] w-full cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-panel transition-all hover:from-brand-400 hover:to-brand-500 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="min-h-[44px] w-full cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-panel transition-[background-image] duration-base hover:from-brand-400 hover:to-brand-500 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
           >
             {status === 'sending' ? 'Enviando…' : 'Recibir enlace'}
           </button>
@@ -152,7 +152,7 @@ export default function LoginScreen({ onAuthenticated, expired = false, offline 
                 type="button"
                 data-testid="login-demo"
                 onClick={enterDemo}
-                className="mt-3 min-h-[44px] w-full cursor-pointer rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm font-semibold text-brand-200 transition-colors hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="mt-3 min-h-[44px] w-full cursor-pointer rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm font-semibold text-brand-200 transition-colors duration-fast hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 Entrar con la sesión de demostración
               </button>

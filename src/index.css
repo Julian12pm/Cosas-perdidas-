@@ -175,6 +175,12 @@
   --duration-entrance: 500ms;
   --ease-entrance: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /**
+   * El pulso del pin es un bucle, no una transición: su periodo es propio
+   * (dos segundos) porque es la señal de que ese pin está vivo.
+   */
+  --duration-pulse: 2s;
 }
 
 /**
@@ -309,45 +315,28 @@ a,
   }
 }
 
-@keyframes success-pop {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.2);
-  }
-  100% {
-    transform: scale(0);
-    opacity: 0;
-  }
-}
-
 @utility animate-pin-drop {
-  animation: pin-drop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: pin-drop var(--duration-entrance) var(--ease-entrance) forwards;
 }
 
 @utility animate-pin-pulse {
-  animation: pin-pulse 2s ease-in-out infinite;
+  animation: pin-pulse var(--duration-pulse) ease-in-out infinite;
 }
 
 @utility animate-pin-pulse-green {
-  animation: pin-pulse-green 2s ease-in-out infinite;
+  animation: pin-pulse-green var(--duration-pulse) ease-in-out infinite;
 }
 
 @utility animate-modal-in {
-  animation: modal-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: modal-in var(--duration-slow) var(--ease-entrance) forwards;
 }
 
 @utility animate-backdrop-in {
-  animation: backdrop-in 0.2s ease-out forwards;
+  animation: backdrop-in var(--duration-base) ease-out forwards;
 }
 
 @utility animate-shake {
-  animation: shake 0.4s ease-in-out;
-}
-
-@utility animate-success-pop {
-  animation: success-pop 0.6s ease-in-out forwards;
+  animation: shake var(--duration-slow) ease-in-out;
 }
 
 /**
