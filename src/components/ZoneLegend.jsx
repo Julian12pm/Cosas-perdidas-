@@ -3,7 +3,7 @@ import { ArrowRightUpIcon } from '@solar-icons/react/bold/arrow-right-up';
 import { Buildings2Icon } from '@solar-icons/react/bold/buildings-2';
 import { MagnifierIcon } from '@solar-icons/react/bold/magnifier';
 import { ShieldCheckIcon } from '@solar-icons/react/bold/shield-check';
-import { searchZones } from '../map/geometry.js';
+import { searchZones } from '../map/geometry.ts';
 
 /*
  * La leyenda del croquis: los nombres de los edificios, que el plano oficial

@@ -10,9 +10,12 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+import type { ZoneKind } from '../../../src/types.ts';
 
 export type UserRole = 'student' | 'staff' | 'admin';
-export type ZoneKind = 'building' | 'parking' | 'meeting_point' | 'internet_module' | 'track';
+// La especie de una zona la nombra el catálogo, que es la fuente única del
+// campus: la tabla y el mapa hablan de las mismas zonas.
+export type { ZoneKind };
 export type ReportKind = 'lost' | 'found';
 export type ReportStatus =
   | 'open'

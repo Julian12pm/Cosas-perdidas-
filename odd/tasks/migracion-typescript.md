@@ -159,16 +159,16 @@ Checks: reading them, and a local run of each command.
 
 ## Tasks
 
-| ID  | Specs      | Work                                                                                                                     | Route  | Status  | Verification                    |
-| --- | ---------- | ------------------------------------------------------------------------------------------------------------------------ | ------ | ------- | ------------------------------- |
+| ID  | Specs      | Work                                                                                                                     | Route  | Status  | Verification                                                           |
+| --- | ---------- | ------------------------------------------------------------------------------------------------------------------------ | ------ | ------- | ---------------------------------------------------------------------- |
 | T1  | S2, S3, S4 | `src/types.ts` (the vocabulary) and `src/api.ts` (the client, typed with the API's contracts); the tsconfig's new flags. | inline | done    | `tsc --noEmit` + `vp check` + `vp test` (366) + the demo journey (366) |
-| T2  | S1, S7     | `src/map/zones.ts` and `src/map/geometry.ts`: the catalogue and the geometry, typed.                                     | inline | planned | the type check + the journey    |
-| T3  | S1, S4     | `src/data.ts`: the demo data and the projections, typed with the vocabulary.                                             | inline | planned | the type check + the journey    |
-| T4  | S1, S4, S5 | The twelve components: `.tsx`, typed props, typed state.                                                                 | inline | planned | the type check + the journey    |
-| T5  | S1, S4, S5 | `src/App.tsx`: the app's state machine, typed.                                                                           | inline | planned | the type check + the journey    |
-| T6  | S1, S8     | The four test files: `.ts`, typed.                                                                                       | inline | planned | `vp test` + the type check      |
-| T7  | S1, S7     | The four scripts: `.ts`, typed; the generator keeps writing a typed catalogue.                                           | inline | planned | the journeys + the type check   |
-| T8  | S2, S5, S9 | The tightening: `allowJs` off, the greps of S5 clean, the CI, the package.json, the README.                              | inline | planned | the greps + the three gates     |
+| T2  | S1, S7     | `src/map/zones.ts` and `src/map/geometry.ts`: the catalogue and the geometry, typed.                                     | inline | planned | the type check + the journey                                           |
+| T3  | S1, S4     | `src/data.ts`: the demo data and the projections, typed with the vocabulary.                                             | inline | planned | the type check + the journey                                           |
+| T4  | S1, S4, S5 | The twelve components: `.tsx`, typed props, typed state.                                                                 | inline | planned | the type check + the journey                                           |
+| T5  | S1, S4, S5 | `src/App.tsx`: the app's state machine, typed.                                                                           | inline | planned | the type check + the journey                                           |
+| T6  | S1, S8     | The four test files: `.ts`, typed.                                                                                       | inline | planned | `vp test` + the type check                                             |
+| T7  | S1, S7     | The four scripts: `.ts`, typed; the generator keeps writing a typed catalogue.                                           | inline | planned | the journeys + the type check                                          |
+| T8  | S2, S5, S9 | The tightening: `allowJs` off, the greps of S5 clean, the CI, the package.json, the README.                              | inline | planned | the greps + the three gates                                            |
 
 ### Risks
 

@@ -58,13 +58,22 @@ export interface MapImage {
   height: number;
 }
 
+/**
+ * La especie de una zona del catálogo.
+ *
+ * La misma lista que usa la tabla del API: el catálogo es la fuente única
+ * del campus y las dos partes (el mapa y la base) hablan de sus zonas con
+ * estas palabras.
+ */
+export type ZoneKind = 'building' | 'parking' | 'meeting_point' | 'internet_module' | 'track';
+
 /** Una zona del catálogo del campus. */
 export interface Zone {
   id: string;
   code: string | null;
   name: string;
   unit: string;
-  kind: string;
+  kind: ZoneKind;
   safePoint: boolean;
   label: string;
   box: Box;

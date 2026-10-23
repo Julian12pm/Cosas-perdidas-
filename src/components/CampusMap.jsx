@@ -17,7 +17,7 @@ import {
   zoneReadingOrder,
   zoneShapes,
   zoomAt,
-} from '../map/geometry.js';
+} from '../map/geometry.ts';
 
 /*
  * El croquis es un SVG que la app dibuja: el raster oscuro del plan es el

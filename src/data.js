@@ -1,5 +1,5 @@
-import { MAP_IMAGE, ZONE_BY_ID } from './map/zones.js';
-import { artworkToPercent, polygonCentroid } from './map/geometry.js';
+import { MAP_IMAGE, ZONE_BY_ID } from './map/zones.ts';
+import { artworkToPercent, polygonCentroid } from './map/geometry.ts';
 import { getContactCard, getReport, isApiConfigured, listInbox, listReports } from './api.ts';
 
 // Longitud de la clave de liberación: el dueño del objeto la dicta al
