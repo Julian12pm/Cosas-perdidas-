@@ -1038,9 +1038,28 @@ for (let y = 0; y < H; y++) {
     if (isTrackFill(r, g, b)) trackMask[y * W + x] = 1;
   }
 }
-const trackBoxes = components(dilate(trackMask, 2))
-  .map((c) => boxOf(c, trackMask))
-  .filter((b) => b && b.area >= 400);
+const trackComponents = components(dilate(trackMask, 2)).filter(
+  (component) => (boxOf(component, trackMask)?.area ?? 0) >= 400,
+);
+
+/**
+ * Un tramo del anillo de la pista.
+ *
+ * La pista de atletismo es un ovalo: su caja completa incluye el campo de
+ * juego y el pasto de dentro, y un pin en el centro de esa caja caeria en el
+ * pasto (y la piscina que hay al lado). La caja que se publica es el tramo
+ * del anillo, arriba, donde caen el pin y el nombre.
+ */
+function ringSegment(component: Component): PixelBox | null {
+  let topY = Infinity;
+  for (const [, y] of component.pixels) if (y < topY) topY = y;
+  if (!Number.isFinite(topY)) return null;
+  const xs = component.pixels.filter(([, y]) => y === topY).map(([x]) => x);
+  if (xs.length === 0) return null;
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  return { x: minX, y: topY, width: maxX - minX + 1, height: 4, area: 0 };
+}
 
 // --- parking: paving texture inside the five lot regions -------------
 const pavingMask = new Uint8Array(W * H);
@@ -1608,8 +1627,9 @@ for (const lot of parkingBoxes) {
 // lo envuelve, no el óvalo: un óvalo no es un polígono y el renderer no
 // puede pintar una zona plana con la caja, porque borraría el pasto de
 // dentro. La pista la deja el raster, que es quien dibuja el óvalo.
-for (const [index, box] of trackBoxes.entries()) {
-  if (!box) continue;
+for (const [index, component] of trackComponents.entries()) {
+  const segment = ringSegment(component);
+  if (!segment) continue;
   zones.push({
     id: `track-${index + 1}`,
     code: 'PISTA DE ATLETISMO',
@@ -1618,14 +1638,8 @@ for (const [index, box] of trackBoxes.entries()) {
     kind: 'track',
     safePoint: false,
     label: 'Pista de Atletismo',
-    box: {
-      x: box.x,
-      y: box.y,
-      width: box.width,
-      height: box.height,
-      area: box.area ?? 0,
-    },
-    polygon: boxRing(box),
+    box: segment,
+    polygon: boxRing(segment),
   });
 }
 

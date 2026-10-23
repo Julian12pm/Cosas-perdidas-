@@ -114,6 +114,21 @@ function mockZone(zoneId: string): { zoneId: string; zoneLabel: string } {
   return { zoneId: zone.id, zoneLabel: zone.label };
 }
 
+/**
+ * Donde cae un pin de arranque: el centro de su zona, en porcentajes.
+ *
+ * La posicion no se escribe a mano: el catalogo se vuelve a trazar cada vez
+ * que el generador corre, y una posicion escrita a mano se queda en el
+ * sitio viejo (el pin de la cafeteria caia en el pasto).
+ */
+function pinSpot(zoneId: string): { x: number; y: number } {
+  const zone = ZONE_BY_ID.get(zoneId);
+  const centroid = zone?.polygon ? polygonCentroid(zone.polygon) : null;
+  if (!centroid) throw new Error(`la zona de arranque ${zoneId} no tiene centro`);
+  const percent = artworkToPercent(centroid, MAP_IMAGE);
+  return { x: round2(percent.x), y: round2(percent.y) };
+}
+
 /** Una marca de tiempo de hace unas horas, para que la demo nunca envejezca. */
 function hoursAgo(hours: number): string {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
@@ -126,8 +141,7 @@ export const MOCK_PINS: Report[] = [
   {
     id: 'pin-1',
     type: 'lost', // Pin Rojo - "Perdí algo aquí"
-    x: 41.96, // Centro de E · Aulas y Taller de Dibujo
-    y: 30.6,
+    ...pinSpot('bldg-e'), // Centro de E · Aulas y Taller de Dibujo
     item: 'Laptop HP gris con sticker de React',
     description: 'Olvidé mi laptop en el edificio E, segundo piso, aula E3.',
     ownerId: MOCK_SESSION.id,
@@ -143,8 +157,7 @@ export const MOCK_PINS: Report[] = [
   {
     id: 'pin-2',
     type: 'found', // Pin Verde - "Encontré algo aquí"
-    x: 39.18, // Centro de R · Cafetería
-    y: 57.34,
+    ...pinSpot('bldg-r'), // Centro de R · Cafetería
     item: 'Calculadora científica',
     description: 'Encontrada en una banca cerca de la cafetería.',
     ownerId: 'usr-demo-02',
@@ -161,8 +174,7 @@ export const MOCK_PINS: Report[] = [
   {
     id: 'pin-3',
     type: 'lost', // Pin Rojo
-    x: 65.37, // Centro de Pista de Atletismo
-    y: 35.32,
+    ...pinSpot('track-1'), // Sobre la pista de atletismo
     item: 'Mochila negra Jansport',
     description: 'La dejé en las gradas de la pista de atletismo durante el entrenamiento.',
     ownerId: 'usr-demo-03',
@@ -178,8 +190,7 @@ export const MOCK_PINS: Report[] = [
   {
     id: 'pin-4',
     type: 'found', // Pin Verde - "Encontré esto, ¿de quién es?"
-    x: 47.28, // Centro de Estacionamiento 5
-    y: 12.52,
+    ...pinSpot('parking-5'), // Centro de Estacionamiento 5
     item: 'Laptop gris con una pegatina',
     description: 'Encontrada en el Estacionamiento 5, junto a un auto azul.',
     ownerId: MOCK_SESSION.id,

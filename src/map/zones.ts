@@ -2430,12 +2430,12 @@ export const ZONES: Zone[] = [
     kind: 'track',
     safePoint: false,
     label: 'Pista de Atletismo',
-    box: { x: 499, y: 126, width: 108, height: 205 },
+    box: { x: 548, y: 124, width: 8, height: 4 },
     polygon: [
-      [499, 126],
-      [607, 126],
-      [607, 331],
-      [499, 331],
+      [548, 124],
+      [556, 124],
+      [556, 128],
+      [548, 128],
     ],
   },
 ];
