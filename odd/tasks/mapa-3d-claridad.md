@@ -149,12 +149,12 @@ screenshots.
 
 ## Tasks
 
-| ID  | Specs          | Work                                                                                                                           | Route  | Status  | Verification                                  |
-| --- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------ | ------- | --------------------------------------------- |
-| T1  | S1, S2         | The generator's painting loop: the plan's words out, the orphan pixels out, the kerbs in.                                      | inline | done | the regenerated artwork + the journey (366/366) + the unit tests |
-| T2  | S3, S5         | The roof stays on its building (the wall capped by the size) and the painter's order is the right way round.                   | inline | planned | the geometry's tests + the journey            |
-| T3  | S4, S6, S7, S8 | The key fits its building, the map is not painted twice, the relief's tones stop shouting, no native tooltip, a quieter label. | inline | planned | the journey's new assertions + the shots      |
-| T4  | S9             | The demo's pins come from the catalogue and the track is its ring.                                                             | inline | planned | the journey + the screenshots                 |
+| ID  | Specs          | Work                                                                                                                           | Route  | Status  | Verification                                                     |
+| --- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------ | ------- | ---------------------------------------------------------------- |
+| T1  | S1, S2         | The generator's painting loop: the plan's words out, the orphan pixels out, the kerbs in.                                      | inline | done    | the regenerated artwork + the journey (366/366) + the unit tests |
+| T2  | S3, S5         | The roof stays on its building (the wall capped by the size) and the painter's order is the right way round.                   | inline | done | the journey (370/370) + the screenshots + the unit tests |
+| T3  | S4, S6, S7, S8 | The key fits its building, the map is not painted twice, the relief's tones stop shouting, no native tooltip, a quieter label. | inline | done | the journey (370/370) + the screenshots + the unit tests |
+| T4  | S9             | The demo's pins come from the catalogue and the track is its ring.                                                             | inline | planned | the journey + the screenshots                                    |
 
 ### Risks
 
@@ -212,3 +212,26 @@ What is left of the plan in the artwork: the buildings, the lawns, the pitches, 
 track, the pool and the two hand-over points. The artwork went from 110 KB to 51 KB and the words of
 the plan are gone: the titles of the units, the compass, the codes by the doors, the street names and
 the "DATOS GENERALES" box.
+
+**L5 — 2026-10-23 — The roof has to stay on its building, and the key has to fit inside it.** The
+wall was a fixed height in screen pixels (8/10/16) while the footprints are 5-12 units, so at 1x the
+roof slid 15-31 units away from its own base: the key fell outside the building and the volume read
+as a slab. Now the wall is of its family but never taller than 45% of the building's own side, so the
+roof always overlaps its base, and the key is sized to the building (45% of its side) and is only drawn
+when it can be read (7 px).
+
+The key is printed on the centre of the BASE, not on the centre of the roof: the roof is the base
+displaced towards the light, and in a building with a notch (the 2K is an L) that centre falls
+outside the footprint. The base's centre is inside by definition. And when the roof does not cover
+that centre, the key gets a plate behind it, because the base is almost black and a dark letter on
+it cannot be read.
+
+The painter's order was also the wrong way round: the volumes were sorted descending, so the NEAR
+ones were painted first and the far ones over them. For a light from the upper left, the far ones
+(x+y smaller) go first.
+
+Two invariants of the previous phase were impossible to keep and are gone with the reason written
+down: the key could not be at least 11 screen pixels (on a phone at 1x the smallest building is 3.6
+pixels tall) and the wall could not be at least 7 pixels for the same reason. The new ones are: the
+key is printed inside its building's footprint, the roof overlaps its own base, and the wall grows
+with the zoom.
