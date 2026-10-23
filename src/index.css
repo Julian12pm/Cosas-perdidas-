@@ -315,6 +315,48 @@ a,
   }
 }
 
+@keyframes modal-out {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.94) translateY(12px);
+  }
+}
+
+@keyframes backdrop-out {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes view-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dropdown-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 @utility animate-pin-drop {
   animation: pin-drop var(--duration-entrance) var(--ease-entrance) forwards;
 }
@@ -331,8 +373,24 @@ a,
   animation: modal-in var(--duration-slow) var(--ease-entrance) forwards;
 }
 
+@utility animate-modal-out {
+  animation: modal-out var(--duration-base) var(--ease-exit) forwards;
+}
+
 @utility animate-backdrop-in {
   animation: backdrop-in var(--duration-base) ease-out forwards;
+}
+
+@utility animate-backdrop-out {
+  animation: backdrop-out var(--duration-base) var(--ease-exit) forwards;
+}
+
+@utility animate-view-in {
+  animation: view-in var(--duration-base) var(--ease-entrance) forwards;
+}
+
+@utility animate-dropdown-in {
+  animation: dropdown-in var(--duration-fast) var(--ease-entrance) forwards;
 }
 
 @utility animate-shake {

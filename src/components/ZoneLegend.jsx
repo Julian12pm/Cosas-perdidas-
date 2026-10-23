@@ -144,90 +144,103 @@ export default function ZoneLegend({ zones = [], onSelect, onHover }) {
         {open ? 'Ocultar nombres' : 'Ver nombres'}
       </button>
 
-      <div id={listId} className={`${open ? 'block' : 'hidden'} lg:block`}>
-        <p className="mt-3 text-xs leading-relaxed text-text-muted">
-          Pasa el cursor por una fila y su zona se enciende en el croquis; tócala para marcar algo
-          ahí.
-        </p>
-
-        <div className="mt-2">
-          <label htmlFor={searchId} className="mb-1 block text-xs font-semibold text-surface-200">
-            Buscar por clave o nombre
-          </label>
-          <div className="flex items-center gap-2 rounded-xl border border-input-border bg-surface-700/50 px-3 focus-within:border-brand-500/70 focus-within:ring-2 focus-within:ring-focus">
-            <MagnifierIcon size={16} className="shrink-0 text-text-muted" aria-hidden="true" />
-            <input
-              id={searchId}
-              data-testid="zone-legend-search"
-              type="search"
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setActiveIndex(0);
-              }}
-              placeholder="2K, AF, cafetería…"
-              className="min-h-[44px] w-full bg-transparent text-sm text-white placeholder-surface-500 outline-none"
-            />
-          </div>
-        </div>
-
-        {rows.length === 0 ? (
-          <p className="surface-inset mt-3 p-3 text-sm leading-relaxed text-text-muted">
-            Ninguna zona coincide con «{query.trim()}». Prueba con la clave (2K, AF) o con el nombre
-            del edificio.
+      {/* La lista se pliega con su altura: el pliegue se anima en vez de
+          aparecer de golpe. En pantalla ancha siempre está abierta. */}
+      <div
+        id={listId}
+        className={`grid transition-[grid-template-rows] duration-slow lg:grid-rows-[1fr] ${
+          open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+        }`}
+      >
+        <div className="overflow-hidden">
+          <p className="mt-3 text-xs leading-relaxed text-text-muted">
+            Pasa el cursor por una fila y su zona se enciende en el croquis; tócala para marcar algo
+            ahí.
           </p>
-        ) : (
-          <div className="mt-3 max-h-[min(60vh,32rem)] space-y-3 overflow-y-auto overscroll-contain pr-1">
-            {groups.map((group) => (
-              <div key={group.unit ?? 'coincidencias'}>
-                {group.name && (
-                  <h3 className="px-1 pb-1 text-[11px] font-bold uppercase tracking-wide text-surface-300">
-                    {group.name}
-                  </h3>
-                )}
-                <ul className="space-y-1" aria-label={group.name ?? 'Zonas que coinciden'}>
-                  {group.zones.map((zone) => {
-                    const index = indexById.get(zone.id);
-                    const text = rowText(zone);
 
-                    return (
-                      <li key={zone.id} className="list-none">
-                        <button
-                          type="button"
-                          data-testid={`zone-legend-${zone.id}`}
-                          title={text}
-                          tabIndex={index === tabStop ? 0 : -1}
-                          onClick={() => onSelect?.(zone)}
-                          onMouseEnter={() => onHover?.(zone.id)}
-                          onMouseLeave={() => onHover?.(null)}
-                          onFocus={() => {
-                            setActiveIndex(index);
-                            onHover?.(zone.id);
-                          }}
-                          onBlur={() => onHover?.(null)}
-                          onKeyDown={(event) => onRowKeyDown(event, index)}
-                          ref={(node) => {
-                            if (node) rowRefs.current.set(zone.id, node);
-                            else rowRefs.current.delete(zone.id);
-                          }}
-                          className="flex min-h-[44px] w-full cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-2 py-1.5 text-left text-sm text-surface-200 transition-colors duration-fast hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-                        >
-                          <span className="min-w-0">{text}</span>
-                          {zone.safePoint && (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-brand-500/40 bg-brand-500/15 px-2 py-0.5 text-[10px] font-semibold text-brand-200">
-                              <ShieldCheckIcon size={12} className="shrink-0" aria-hidden="true" />
-                              Punto de entrega seguro
-                            </span>
-                          )}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
+          <div className="mt-2">
+            <label htmlFor={searchId} className="mb-1 block text-xs font-semibold text-surface-200">
+              Buscar por clave o nombre
+            </label>
+            <div className="flex items-center gap-2 rounded-xl border border-input-border bg-surface-700/50 px-3 focus-within:border-brand-500/70 focus-within:ring-2 focus-within:ring-focus">
+              <MagnifierIcon size={16} className="shrink-0 text-text-muted" aria-hidden="true" />
+              <input
+                id={searchId}
+                data-testid="zone-legend-search"
+                type="search"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setActiveIndex(0);
+                }}
+                placeholder="2K, AF, cafetería…"
+                className="min-h-[44px] w-full bg-transparent text-sm text-white placeholder-surface-500 outline-none"
+              />
+            </div>
           </div>
-        )}
+
+          {rows.length === 0 ? (
+            <p className="surface-inset mt-3 p-3 text-sm leading-relaxed text-text-muted">
+              Ninguna zona coincide con «{query.trim()}». Prueba con la clave (2K, AF) o con el
+              nombre del edificio.
+            </p>
+          ) : (
+            <div className="mt-3 max-h-[min(60vh,32rem)] space-y-3 overflow-y-auto overscroll-contain pr-1">
+              {groups.map((group) => (
+                <div key={group.unit ?? 'coincidencias'}>
+                  {group.name && (
+                    <h3 className="px-1 pb-1 text-[11px] font-bold uppercase tracking-wide text-surface-300">
+                      {group.name}
+                    </h3>
+                  )}
+                  <ul className="space-y-1" aria-label={group.name ?? 'Zonas que coinciden'}>
+                    {group.zones.map((zone) => {
+                      const index = indexById.get(zone.id);
+                      const text = rowText(zone);
+
+                      return (
+                        <li key={zone.id} className="list-none">
+                          <button
+                            type="button"
+                            data-testid={`zone-legend-${zone.id}`}
+                            title={text}
+                            tabIndex={index === tabStop ? 0 : -1}
+                            onClick={() => onSelect?.(zone)}
+                            onMouseEnter={() => onHover?.(zone.id)}
+                            onMouseLeave={() => onHover?.(null)}
+                            onFocus={() => {
+                              setActiveIndex(index);
+                              onHover?.(zone.id);
+                            }}
+                            onBlur={() => onHover?.(null)}
+                            onKeyDown={(event) => onRowKeyDown(event, index)}
+                            ref={(node) => {
+                              if (node) rowRefs.current.set(zone.id, node);
+                              else rowRefs.current.delete(zone.id);
+                            }}
+                            className="flex min-h-[44px] w-full cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-2 py-1.5 text-left text-sm text-surface-200 transition-colors duration-fast hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                          >
+                            <span className="min-w-0">{text}</span>
+                            {zone.safePoint && (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-brand-500/40 bg-brand-500/15 px-2 py-0.5 text-[10px] font-semibold text-brand-200">
+                                <ShieldCheckIcon
+                                  size={12}
+                                  className="shrink-0"
+                                  aria-hidden="true"
+                                />
+                                Punto de entrega seguro
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* El plano oficial sigue disponible, pero como referencia: no es el mapa. */}

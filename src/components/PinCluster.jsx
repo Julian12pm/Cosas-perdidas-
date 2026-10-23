@@ -125,12 +125,12 @@ export default function PinCluster({ group, onOpen }) {
 }
 
 /* ──────────────────────────── La lista del grupo ──────────────────────────── */
-export function PinClusterList({ group, onClose, onOpenReport }) {
+export function PinClusterList({ open = true, group, onClose, onOpenReport }) {
   const count = group.reports.length;
 
   return (
     <Modal
-      open
+      open={open}
       onClose={onClose}
       title={clusterName(count, group.label)}
       description="Elige el reporte que quieras abrir."
