@@ -9,9 +9,8 @@
  *
  * Outputs:
  *   src/map/zones.ts   - the catalogue (deterministic order)
- *   public/mapa-itm-dark.png - the interactive artwork: the same masks
- *                              remapped to the app's palette and cropped to
- *                              the campus (the legend column is cut away)
+ *   src/map/scene.ts   - the ground of the map: the campus traced from the
+ *                         plan's own colour classes, one shape per layer
  *   public/zones-debug.png - the plan with every detected box drawn and labelled
  *
  * Measured on the current raster: 53 orange footprints, of which 52 carry a
@@ -30,18 +29,18 @@ import type { Zone } from '../src/types.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MAP_PATH = resolve(ROOT, 'public/mapa-itm.png');
-const DARK_MAP_PATH = resolve(ROOT, 'public/mapa-itm-dark.png');
 const ZONES_OUT = resolve(ROOT, 'src/map/zones.ts');
+const SCENE_OUT = resolve(ROOT, 'src/map/scene.ts');
 const DEBUG_OUT = resolve(ROOT, 'public/zones-debug.png');
 
 const MAP_WIDTH = 846;
 const MAP_HEIGHT = 647;
 
 /*
- * The interactive artwork is the dark crop of the plan: the legend column,
- * the title card and the crest live past x = 700. The crop starts at x = 0,
- * so the artwork's origin does NOT move — every coordinate of the catalogue
- * stays valid and only the canvas width changes.
+ * The artwork is the crop of the plan: the legend column, the title card
+ * and the crest live past x = 700. The crop starts at x = 0, so the
+ * artwork's origin does NOT move — every coordinate of the catalogue and
+ * every shape of the scene stays valid and only the canvas width changes.
  */
 const CROP_WIDTH = 700;
 
@@ -336,9 +335,9 @@ const isPaving = (r: number, g: number, b: number) =>
   (Math.abs(r - g) <= 14 && Math.abs(g - b) <= 16 && r >= 150 && r <= 248) ||
   (r >= 175 && r <= 235 && r - g >= 40 && r - g <= 95 && g - b >= 5 && g - b <= 55);
 
-/* --- the layers of the dark artwork ------------------------------- *
- * The artwork is remapped per CLASSIFIED LAYER, never per pixel: these
- * predicates are the ones that decide which layer a pixel belongs to.
+/* --- the classes of the plan ------------------------------------- *
+ * The plan is classified per CLASS, never per pixel: these predicates
+ * are the ones that decide which class a pixel belongs to.
  * ------------------------------------------------------------------ */
 
 // The grey half of the paving: the street mesh and the stippled lots.
@@ -622,9 +621,9 @@ const buildingBoxes: Building[] = [...groups.values()].map((members) => {
     pixels: members.flatMap((m) => m.pixels),
     area: members.reduce((sum, m) => sum + m.area, 0),
     code: coded ? (codeOfBlob.get(coded.index) ?? null) : null,
-    // The members carry their pixels: the dark artwork paints the two safe
-    // points with the brand amber and needs to know exactly which pixels
-    // belong to them.
+    // The members carry their pixels: the two safe points are kept out
+    // of the ground and the renderer paints them with the brand amber, so
+    // the generator needs to know exactly which pixels belong to them.
     members,
   };
 });
@@ -786,27 +785,29 @@ function connectedPieces(pixels: Pixel[]): Pixel[][] {
  * so the outline of a shape runs clockwise and its holes the other
  * way.
  */
-function traceOutline(pixels: Pixel[]): Pixel[][] {
-  const inside = new Set(pixels.map(([x, y]) => `${x},${y}`));
-  const has = (x: number, y: number) => inside.has(`${x},${y}`);
+function traceOutline(mask: Mask): Pixel[][] {
+  const has = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && mask[y * W + x] === 1;
 
-  const outgoing = new Map<string, number[][]>();
+  const outgoing = new Map<number, number[][]>();
   const link = (fromX: number, fromY: number, toX: number, toY: number) => {
-    const key = `${fromX},${fromY}`;
+    const key = fromY * W + fromX;
     const edge = [toX, toY, toX - fromX, toY - fromY];
     const list = outgoing.get(key);
     if (list) list.push(edge);
     else outgoing.set(key, [edge]);
   };
-  for (const [x, y] of pixels) {
-    if (!has(x, y - 1)) link(x, y, x + 1, y);
-    if (!has(x + 1, y)) link(x + 1, y, x + 1, y + 1);
-    if (!has(x, y + 1)) link(x + 1, y + 1, x, y + 1);
-    if (!has(x - 1, y)) link(x, y + 1, x, y);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (!mask[y * W + x]) continue;
+      if (!has(x, y - 1)) link(x, y, x + 1, y);
+      if (!has(x + 1, y)) link(x + 1, y, x + 1, y + 1);
+      if (!has(x, y + 1)) link(x + 1, y + 1, x, y + 1);
+      if (!has(x - 1, y)) link(x, y + 1, x, y);
+    }
   }
 
   const pending = new Map([...outgoing].map(([key, list]) => [key, [...list]]));
-  const takeEdge = (key: string, dx: number, dy: number) => {
+  const takeEdge = (key: number, dx: number, dy: number) => {
     const list = pending.get(key);
     if (!list?.length) return null;
     // The interior hugs the right: the sharpest turn to the right comes
@@ -831,12 +832,13 @@ function traceOutline(pixels: Pixel[]): Pixel[][] {
       let key = startKey;
       let edge: number[] = first;
       for (;;) {
-        const [atX, atY] = key.split(',');
-        ring.push([Number(atX), Number(atY)]);
-        const next = takeEdge(`${edge[0]},${edge[1]}`, edge[2], edge[3]);
+        const atX = key % W;
+        const atY = (key - atX) / W;
+        ring.push([atX, atY]);
+        const next = takeEdge(edge[1] * W + edge[0], edge[2], edge[3]);
         if (!next) break;
-        if (`${next[0]},${next[1]}` === startKey) break;
-        key = `${next[0]},${next[1]}`;
+        if (next[1] * W + next[0] === startKey) break;
+        key = next[1] * W + next[0];
         edge = next;
       }
       if (ring.length >= 3) rings.push(ring);
@@ -917,35 +919,104 @@ function simplifyRing(ring: Pixel[], tolerance: number): Pixel[] {
 }
 
 /**
- * The footprint of a construction: the outline of every piece of it the
- * plan draws, the biggest one first.
+ * The footprint of a construction: the shape the plan draws, cleaned.
  *
- * A speck of the scan is not a wing of a building, so a piece that is
- * smaller than a tenth of the biggest one is dropped: the printed
- * labels cut the constructions in pieces, and those pieces are kept,
- * but the dust of the JPEG is not.
+ * The plan prints the code of a construction OVER it, so the code is a
+ * HOLE of the orange fill, and the plan draws its own offset shadow next
+ * to it, so the shadow is a PIECE of the construction's own blobs. A
+ * morphological closing of the construction's own blobs removes both in
+ * one operation: the strokes of the code and the notches the plan cuts
+ * are thinner than the closing's radius, so the closing heals them.
+ *
+ * The closing runs PER CONSTRUCTION, never over the whole mask, so two
+ * buildings that almost touch can never merge. Its radius is a quarter
+ * of the construction's own smaller side, capped: a big building gets a
+ * wide healing and a small one a narrow one.
  */
-const FRAGMENT_SHARE = 0.1;
+const FOOTPRINT_CLOSE_MIN = 1;
+const FOOTPRINT_CLOSE_MAX = 5;
 
-function footprintOf(host: Building): Pixel[][] {
-  const rings: { ring: Pixel[]; area: number }[] = [];
-  for (const member of host.members) {
-    // The holes of the component are the printed codes, and the
-    // footprint ignores them. The erosion takes the dilation back, so
-    // the outline lands on the orange fill and not on its rim.
-    const silhouette = erodePixels(fillHoles(member.dilated ?? []));
-    for (const piece of connectedPieces(silhouette)) {
-      for (const ring of traceOutline(piece)) {
-        const area = Math.abs(ringArea(ring));
-        if (area > 0) rings.push({ ring, area });
+/**
+ * A fragment smaller than this in its shorter side is not a wing of the
+ * building: it is the sliver of the plan's own offset shadow.
+ */
+const FOOTPRINT_MIN_SIDE = 4;
+
+/** The closing of a set of pixels: dilate by r, then erode by r. */
+function closePixels(pixels: Pixel[], radius: number): Pixel[] {
+  const grown = new Set<string>();
+  for (const [x, y] of pixels) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        grown.add(`${nx},${ny}`);
       }
     }
   }
+  const out: Pixel[] = [];
+  for (const key of grown) {
+    const [x, y] = key.split(',').map(Number);
+    let solid = true;
+    for (let dy = -radius; dy <= radius && solid; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H || !grown.has(`${nx},${ny}`)) {
+          solid = false;
+          break;
+        }
+      }
+    }
+    if (solid) out.push([x, y]);
+  }
+  return out;
+}
+
+/** The fragments dropped as slivers, and the printed codes healed. */
+let sliversDropped = 0;
+let codesHealed = 0;
+
+function footprintOf(host: Building): Pixel[][] {
+  const minSide = Math.min(host.width, host.height);
+  const radius = Math.max(
+    FOOTPRINT_CLOSE_MIN,
+    Math.min(FOOTPRINT_CLOSE_MAX, Math.round(minSide / 4)),
+  );
+  // The construction's own blobs: the orange fill dilated by one pixel,
+  // so the code printed over it is still part of the shape.
+  const own = host.members.flatMap((member) => member.dilated ?? []);
+  // The regions the plan prints inside the construction: the codes the
+  // closing heals.
+  const inside = new Set(own.map(([x, y]) => `${x},${y}`));
+  const holeMask = new Uint8Array(W * H);
+  for (const [x, y] of fillHoles(own)) {
+    if (!inside.has(`${x},${y}`)) holeMask[y * W + x] = 1;
+  }
+  codesHealed += components(holeMask).length;
+  // The closing heals the code and the notches of the plan.
+  const closed = closePixels(own, radius);
+  // The erosion takes the dilation of the orange back, so the outline
+  // lands on the fill and not on its rim, and the holes are filled.
+  const silhouette = erodePixels(fillHoles(closed));
+  const rings: { ring: Pixel[]; area: number }[] = [];
+  for (const piece of connectedPieces(silhouette)) {
+    const box = boxOfPixels(piece);
+    // The sliver of the plan's own offset shadow is not a wing.
+    if (!box || Math.min(box.width, box.height) < FOOTPRINT_MIN_SIDE) {
+      sliversDropped++;
+      continue;
+    }
+    // Only the outer ring: the courtyard of a construction is not a wing.
+    const outer = traceOutline(maskOf(piece))
+      .map((ring) => ({ ring, area: Math.abs(ringArea(ring)) }))
+      .filter((entry) => entry.area > 0)
+      .sort((left, right) => right.area - left.area)[0];
+    if (outer) rings.push(outer);
+  }
   rings.sort((left, right) => right.area - left.area);
-  const biggest = rings[0]?.area ?? 0;
-  return rings
-    .filter((entry) => entry.area >= biggest * FRAGMENT_SHARE)
-    .map((entry) => simplifyRing(entry.ring, SIMPLIFY_TOLERANCE));
+  return rings.map((entry) => simplifyRing(entry.ring, SIMPLIFY_TOLERANCE));
 }
 
 // --- meeting points: green cross -------------------------------------
@@ -1162,18 +1233,17 @@ for (const box of buildingBoxes) {
 }
 
 /* ------------------------------------------------------------------ *
- * The dark artwork
+ * The classes of the plan
  *
- * The interactive map must stop being a bright slab of scanned paper in a
- * dark product, so the same masks that produce the catalogue produce a
- * SECOND raster: the plan's layers remapped to the app's palette and the
- * legend column cut away. The remap is per classified layer, never a
- * per-pixel filter: every pixel lands in exactly one layer and the layer
- * decides the colour.
+ * The remap is per classified layer, never a per-pixel filter: every
+ * pixel lands in exactly one class and the class decides what it is.
+ * The names of the classes are the vocabulary the scene and the
+ * catalogue share, and the tones below are the reference of the layers
+ * the app paints.
  * ------------------------------------------------------------------ */
 
 /**
- * The palette of the dark artwork. The hexes the app already owns are the
+ * The palette of the classes. The hexes the app already owns are the
  * app's own tokens; the ones it does not own are picked to sit at the
  * lightness of their neighbours, so the plan reads as one surface.
  */
@@ -1460,25 +1530,271 @@ for (let y = 0; y < H; y++) {
   }
 }
 
-const DARK_RGB = Object.fromEntries(
-  Object.entries(DARK_PALETTE).map(([name, hex]) => [
-    name,
-    [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)],
-  ]),
-);
+/* ------------------------------------------------------------------ *
+ * The scene: the ground of the map
+ *
+ * The map is not a picture of the plan any more: the plan's own colour
+ * classes are traced into rings and the renderer paints them. The
+ * classification is the SAME one the catalogue uses, so the ground and
+ * the catalogue can never disagree about where the campus is.
+ *
+ * Every mask of the scene is cleaned the same way:
+ *
+ *   1. the components under a threshold are dropped: the plan is full of
+ *      isolated motes of dust,
+ *   2. the mask is closed (dilated by r and eroded by r): the 1px noise
+ *      and the bites the printed text takes out of the shapes disappear,
+ *   3. the surface fills every hole it has: the courtyards, the printed
+ *      text and the area of the constructions are all ground,
+ *   4. the outer contour is traced and the rings that pierce it are kept:
+ *      the athletics track is an annulus and its infield is a hole,
+ *   5. the ring is simplified with the Douglas-Peucker of the catalogue.
+ * ------------------------------------------------------------------ */
 
-const dark = new PNG({ width: CROP_WIDTH, height: MAP_HEIGHT });
-for (let y = 0; y < MAP_HEIGHT; y++) {
-  for (let x = 0; x < CROP_WIDTH; x++) {
-    const [r, g, b] = DARK_RGB[LAYER_NAMES[darkLayer[y * W + x]]] ?? [0, 0, 0];
-    const i = (y * CROP_WIDTH + x) * 4;
-    dark.data[i] = r;
-    dark.data[i + 1] = g;
-    dark.data[i + 2] = b;
-    dark.data[i + 3] = 255;
+/** The layers of the scene, back to front: the painter's order. */
+const SCENE_LAYERS = ['surface', 'green', 'track', 'court', 'lot'] as const;
+
+type SceneLayer = (typeof SCENE_LAYERS)[number];
+
+/**
+ * Which layer of the scene each class of the plan paints. The classes
+ * that are not listed are the surface: the streets, the hairline
+ * outlines, the printed text, the plan's own drop shadows and the small
+ * symbols. The paper, the amber of the constructions and the two safe
+ * points are not ground at all.
+ */
+const SCENE_CLASS: Record<string, SceneLayer | 'none'> = {
+  paper: 'none',
+  building: 'none',
+  safe: 'none',
+  lawn: 'green',
+  field: 'green',
+  track: 'track',
+  cyan: 'court',
+  brick: 'lot',
+};
+
+/**
+ * The cleaning of each layer: the radius of the closing and the size
+ * under which a component is a speck. The surface is the campus: its
+ * radius is the reference value and it is wide, because a bite in the
+ * silhouette of the campus is a hole in the ground.
+ */
+const SCENE_CLEAN: Record<SceneLayer, { close: number; minPixels: number }> = {
+  surface: { close: 3, minPixels: 600 },
+  green: { close: 2, minPixels: 600 },
+  track: { close: 2, minPixels: 600 },
+  court: { close: 2, minPixels: 60 },
+  lot: { close: 2, minPixels: 60 },
+};
+
+/** The tolerance of the simplification of the scene's rings, in pixels. */
+const SCENE_TOLERANCE = 1.5;
+
+/**
+ * The mask of the pixels of one layer of the scene.
+ *
+ * The surface is the UNION of every class but the paper and the
+ * constructions: the ground the campus stands on. The layers above it
+ * are painted over it, so they are also part of the surface.
+ *
+ * The scene is the crop of the plan: the legend column, the title card
+ * and the crest live past x = 700 and are not ground.
+ */
+function sceneMask(layer: SceneLayer): Mask {
+  const mask = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < CROP_WIDTH; x++) {
+      const name = LAYER_NAMES[darkLayer[y * W + x]];
+      const target = SCENE_CLASS[name] ?? 'surface';
+      if (target === 'none') continue;
+      if (layer === 'surface' || target === layer) mask[y * W + x] = 1;
+    }
   }
+  return mask;
 }
-writeFileSync(DARK_MAP_PATH, PNG.sync.write(dark));
+
+/** A mask with the given pixels in it. */
+function maskOf(pixels: Pixel[]): Mask {
+  const mask = new Uint8Array(W * H);
+  for (const [x, y] of pixels) mask[y * W + x] = 1;
+  return mask;
+}
+
+/** The pieces of a mask, four neighbours each: the shapes it is made of. */
+function maskPieces(mask: Mask): Pixel[][] {
+  const seen = new Uint8Array(W * H);
+  const pieces: Pixel[][] = [];
+  const stack: number[] = [];
+  for (let start = 0; start < W * H; start++) {
+    if (!mask[start] || seen[start]) continue;
+    seen[start] = 1;
+    stack.push(start);
+    const piece: Pixel[] = [];
+    while (stack.length) {
+      const index = stack.pop();
+      if (index === undefined) break;
+      const x = index % W;
+      const y = (index - x) / W;
+      piece.push([x, y]);
+      const visit = (nx: number, ny: number): void => {
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) return;
+        const ni = ny * W + nx;
+        if (!mask[ni] || seen[ni]) return;
+        seen[ni] = 1;
+        stack.push(ni);
+      };
+      visit(x + 1, y);
+      visit(x - 1, y);
+      visit(x, y + 1);
+      visit(x, y - 1);
+    }
+    pieces.push(piece);
+  }
+  return pieces;
+}
+
+/** The box of the pixels of a mask. */
+function maskBox(mask: Mask): PixelBox | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -1;
+  let maxY = -1;
+  let area = 0;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (!mask[y * W + x]) continue;
+      area++;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  return area ? { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1, area } : null;
+}
+
+/** The erosion of a mask by a square window. */
+function erodeMask(mask: Mask, radius: number): Mask {
+  const out = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (!mask[y * W + x]) continue;
+      let solid = true;
+      for (let dy = -radius; dy <= radius && solid; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H || !mask[ny * W + nx]) {
+            solid = false;
+            break;
+          }
+        }
+      }
+      if (solid) out[y * W + x] = 1;
+    }
+  }
+  return out;
+}
+
+/** The closing of a mask: dilate by r, then erode by r. */
+function closeMask(mask: Mask, radius: number): Mask {
+  return radius <= 0 ? mask : erodeMask(dilate(mask, radius), radius);
+}
+
+/**
+ * The holes of a mask filled: the regions the shape closes around. The
+ * flood starts from the border of the box of the shape, so what it
+ * reaches is the outside and what it does not is a hole.
+ */
+function fillMaskHoles(mask: Mask): Mask {
+  const box = maskBox(mask);
+  if (!box) return mask;
+  const out = new Uint8Array(mask);
+  const outside = new Uint8Array(W * H);
+  const stack: number[] = [];
+  const visit = (x: number, y: number): void => {
+    if (x < box.x || y < box.y || x >= box.x + box.width || y >= box.y + box.height) return;
+    const index = y * W + x;
+    if (outside[index] || mask[index]) return;
+    outside[index] = 1;
+    stack.push(index);
+  };
+  for (let x = box.x; x < box.x + box.width; x++) {
+    visit(x, box.y);
+    visit(x, box.y + box.height - 1);
+  }
+  for (let y = box.y; y < box.y + box.height; y++) {
+    visit(box.x, y);
+    visit(box.x + box.width - 1, y);
+  }
+  while (stack.length) {
+    const index = stack.pop();
+    if (index === undefined) break;
+    const x = index % W;
+    const y = (index - x) / W;
+    visit(x + 1, y);
+    visit(x - 1, y);
+    visit(x, y + 1);
+    visit(x, y - 1);
+  }
+  for (let y = box.y; y < box.y + box.height; y++) {
+    for (let x = box.x; x < box.x + box.width; x++) {
+      const index = y * W + x;
+      if (!mask[index] && !outside[index]) out[index] = 1;
+    }
+  }
+  return out;
+}
+
+/** One shape of the ground: an outer ring and the rings that pierce it. */
+interface SceneShapeLiteral {
+  layer: SceneLayer;
+  rings: Pixel[][];
+}
+
+/** The components dropped as specks, per layer. */
+const specksDropped = new Map<SceneLayer, number>();
+
+/**
+ * The shapes of one layer of the scene: every component that survives
+ * the cleaning, with its outline traced and simplified.
+ */
+function sceneShapes(layer: SceneLayer): SceneShapeLiteral[] {
+  const { close, minPixels } = SCENE_CLEAN[layer];
+  // 1. the specks are dropped.
+  const pieces = maskPieces(sceneMask(layer));
+  const kept = new Uint8Array(W * H);
+  let keptPieces = 0;
+  for (const piece of pieces) {
+    if (piece.length < minPixels) continue;
+    keptPieces++;
+    for (const [x, y] of piece) kept[y * W + x] = 1;
+  }
+  specksDropped.set(layer, pieces.length - keptPieces);
+  // 2. the closing.
+  const closed = closeMask(kept, close);
+  const shapes: SceneShapeLiteral[] = [];
+  for (const piece of maskPieces(closed)) {
+    // 3. the surface fills every hole; the layers above it keep the
+    //    rings that pierce them (the infield of the athletics track).
+    const shape = layer === 'surface' ? fillMaskHoles(maskOf(piece)) : maskOf(piece);
+    // 4. the outline is traced: the outer ring first, then the holes.
+    const rings = traceOutline(shape)
+      .map((ring) => ({ ring, area: Math.abs(ringArea(ring)) }))
+      .filter((entry) => entry.area > 0)
+      .sort((left, right) => right.area - left.area);
+    if (!rings.length) continue;
+    // 5. the rings are simplified.
+    shapes.push({
+      layer,
+      rings: rings.map((entry) => simplifyRing(entry.ring, SCENE_TOLERANCE)),
+    });
+  }
+  return shapes;
+}
+
+const scene: SceneShapeLiteral[] = SCENE_LAYERS.flatMap((layer) => sceneShapes(layer));
 
 const units = {
   'metal-mecanica': 'metal-mecanica',
@@ -1626,7 +1942,7 @@ for (const lot of parkingBoxes) {
 // La pista de atletismo: el óvalo del plano. Su catálogo guarda la CAJA que
 // lo envuelve, no el óvalo: un óvalo no es un polígono y el renderer no
 // puede pintar una zona plana con la caja, porque borraría el pasto de
-// dentro. La pista la deja el raster, que es quien dibuja el óvalo.
+// dentro. El óvalo lo dibuja la escena, que lo traza como un anillo.
 for (const [index, component] of trackComponents.entries()) {
   const segment = ringSegment(component);
   if (!segment) continue;
@@ -1703,9 +2019,11 @@ const zoneLiteral = (zone: GeneratedZone): string => {
     `    box: { x: ${x}, y: ${y}, width: ${width}, height: ${height} },`,
     `    polygon: ${ringLiteral(zone.polygon)},`,
   ];
-  // Only the constructions carry fragments: the other zones keep the shape
-  // of their box, and a zone without fragments keeps working as it did.
-  if (zone.fragments) {
+  // A construction that the plan draws in one piece needs no fragments: its
+  // polygon IS the shape. The fragments are only published when the plan
+  // draws the construction in more than one piece, so the catalogue never
+  // carries the same ring twice.
+  if (zone.fragments && zone.fragments.length > 1) {
     lines.push(`    fragments: [${zone.fragments.map(ringLiteral).join(', ')}],`);
   }
   lines.push('  },');
@@ -1714,11 +2032,14 @@ const zoneLiteral = (zone: GeneratedZone): string => {
 
 const zonesTs = `// Generated by scripts/extract-zones.ts from public/mapa-itm.png — do not edit by hand.
 //
-// The interactive artwork is the DARK CROP of the official "PLANO GENERAL
-// CAMPUS ITM N°1": public/mapa-itm-dark.png (${CROP_WIDTH} x ${MAP_HEIGHT} px), the plan
-// remapped to the app's palette with its legend column, its title card and
-// its crest cut away. The crop starts at x = 0, so the origin does not move
-// and every zone stays in the coordinate space of the original plan.
+// The catalogue lives in the coordinate space of the CROP of the official
+// "PLANO GENERAL CAMPUS ITM N°1": the legend column, its title card and
+// its crest live past x = 700, so the artwork is ${CROP_WIDTH} x ${MAP_HEIGHT} px. The crop starts
+// at x = 0, so the origin does not move and every zone stays in the
+// coordinate space of the original plan.
+//
+// The ground the zones sit on is the SCENE (src/map/scene.ts): the same
+// generator, the same classification of the plan, traced into rings.
 //
 // The catalogue is typed: the annotation checks the DATA (a zone without a
 // box, or with a polygon of the wrong shape, does not compile) instead of
@@ -1738,6 +2059,53 @@ export const UNCERTAIN_CODES: string[] = [${uncertainCodes.map((code) => quote(c
 `;
 
 writeFileSync(ZONES_OUT, zonesTs);
+
+/* ------------------------------------------------------------------ *
+ * Emit src/map/scene.ts
+ * ------------------------------------------------------------------ */
+const sceneLiteral = (shape: SceneShapeLiteral): string => {
+  const lines = ['  {', `    layer: ${quote(shape.layer)},`, '    rings: ['];
+  for (const ring of shape.rings) lines.push(`      ${ringLiteral(ring)},`);
+  lines.push('    ],', '  },');
+  return lines.join('\n');
+};
+
+const sceneTs = `// Generated by scripts/extract-zones.ts from public/mapa-itm.png — do not edit by hand.
+//
+// The SCENE is the ground of the interactive map: the campus traced from
+// the plan's own colour classes, in the coordinate space of the official
+// "PLANO GENERAL CAMPUS ITM N°1" (${CROP_WIDTH} x ${MAP_HEIGHT} px, the crop that cuts
+// the legend column away). The origin does not move, so the shapes of the
+// scene and the zones of the catalogue live in the same space.
+//
+// The shapes are painted in the order of the array, back to front: the
+// surface is the campus's own silhouette and the layers above it are its
+// lawns, its athletics track, its courts and its brick lots. A shape with
+// more than one ring is a ring with holes: the outer ring first, then the
+// rings that pierce it.
+//
+// The scene is typed: the annotation checks the DATA (a shape without a
+// layer, or with a ring of the wrong shape, does not compile) instead of
+// merely describing it.
+
+import type { Polygon } from '../types.ts';
+
+/** The layers the ground is drawn in, back to front. */
+export type SceneLayer = 'surface' | 'green' | 'track' | 'court' | 'lot';
+
+/** One shape of the ground: an outer ring and the rings that pierce it. */
+export interface SceneShape {
+  layer: SceneLayer;
+  rings: Polygon[];
+}
+
+/** The campus, drawn. The renderer paints these in array order. */
+export const SCENE: SceneShape[] = [
+${scene.map(sceneLiteral).join('\n')}
+];
+`;
+
+writeFileSync(SCENE_OUT, sceneTs);
 
 /* ------------------------------------------------------------------ *
  * Emit public/zones-debug.png
@@ -1863,12 +2231,51 @@ const report = {
   track: count('track'),
 };
 console.log('zone catalogue written to src/map/zones.ts');
+console.log('scene written to src/map/scene.ts');
 console.log('debug overlay written to public/zones-debug.png');
-console.log('dark artwork written to public/mapa-itm-dark.png');
 console.log('per-layer counts:', JSON.stringify(report));
 console.log(
-  'dark artwork per-layer counts:',
+  'plan per-class counts:',
   JSON.stringify(Object.fromEntries(LAYER_NAMES.map((name) => [name, layerCounts.get(name) ?? 0]))),
+);
+console.log(
+  'scene per-layer shapes:',
+  JSON.stringify(
+    Object.fromEntries(
+      SCENE_LAYERS.map((layer) => [layer, scene.filter((shape) => shape.layer === layer).length]),
+    ),
+  ),
+);
+console.log(
+  'scene per-layer vertices:',
+  JSON.stringify(
+    Object.fromEntries(
+      SCENE_LAYERS.map((layer) => [
+        layer,
+        scene
+          .filter((shape) => shape.layer === layer)
+          .reduce((sum, shape) => sum + shape.rings.reduce((n, ring) => n + ring.length, 0), 0),
+      ]),
+    ),
+  ),
+);
+console.log(
+  'specks dropped per layer:',
+  JSON.stringify(
+    Object.fromEntries(SCENE_LAYERS.map((layer) => [layer, specksDropped.get(layer) ?? 0])),
+  ),
+);
+console.log(
+  'surface shapes:',
+  scene
+    .filter((shape) => shape.layer === 'surface')
+    .map(
+      (shape) =>
+        `${shape.rings.length} ring(s), ${shape.rings[0]?.length ?? 0} vertices, ${Math.round(
+          Math.abs(ringArea(shape.rings[0] ?? [])),
+        )} px, box ${JSON.stringify(maskBox(maskOf(shape.rings[0] ?? [])))}`,
+    )
+    .join(' | '),
 );
 console.log(
   `codes assigned ${bound.size}/${PRINTED_CODES.length}, uncertain: ${
@@ -1877,7 +2284,7 @@ console.log(
 );
 const fragmented = zones.filter((zone) => (zone.fragments?.length ?? 0) > 1);
 console.log(
-  `footprints: ${zones.filter((zone) => zone.fragments).length} constructions traced at ${SIMPLIFY_TOLERANCE}px`,
+  `footprints: ${zones.filter((zone) => zone.fragments).length} constructions traced at ${SIMPLIFY_TOLERANCE}px, ${sliversDropped} slivers dropped, ${codesHealed} printed codes healed by the closing`,
 );
 console.log(
   'buildings with more than one fragment:',
