@@ -923,7 +923,7 @@ export default function CampusMap({
                     >
                       <span
                         data-testid={`zone-name-${zone.id}`}
-                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone.box)} whitespace-nowrap rounded-md bg-surface-900/95 px-1.5 py-0.5 text-[12px] font-semibold text-brand-200 shadow-panel ring-1 ring-surface-600/70 transition-opacity duration-fast ${
+                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone.box)} whitespace-nowrap rounded-md bg-surface-900/80 px-1.5 py-0.5 text-[12px] font-semibold text-brand-200 ring-1 ring-surface-600/70 transition-opacity duration-fast ${
                           named
                             ? 'opacity-100'
                             : 'opacity-0 group-hover:opacity-100 group-focus:opacity-100'
