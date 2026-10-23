@@ -469,9 +469,39 @@ describe('zoneAtPoint with the roof', () => {
         [200, 270],
       ],
     });
-    // El punto está en el techo de "inner" y en la base de "outer": lo que
-    // se ve es el techo, así que el techo manda.
-    expect(zoneAtPoint({ x: 210, y: 240 }, [outer, inner], { scale: 0.5 })?.id).toBe('inner');
+    // El punto está en el techo DIBUJADO de "inner" (la base desplazada
+    // hacia la luz, con la pared que su tamaño permite) y en la base de
+    // "outer": lo que se ve es el techo, así que el techo manda.
+    expect(zoneAtPoint({ x: 210, y: 245 }, [outer, inner], { scale: 0.5 })?.id).toBe('inner');
+  });
+
+  it('gives no roof to the flat zones', () => {
+    // Un estacionamiento es plano: no tiene tejado, y un tejado que no
+    // existe se tragaría el edificio que tiene al lado.
+    const building = zoneOf({
+      id: 'building',
+      name: 'Aula',
+      polygon: [
+        [200, 250],
+        [300, 250],
+        [300, 300],
+        [200, 300],
+      ],
+    });
+    const parking = zoneOf({
+      id: 'parking',
+      kind: 'parking',
+      name: 'Estacionamiento 1',
+      polygon: [
+        [205, 255],
+        [215, 255],
+        [215, 265],
+        [205, 265],
+      ],
+    });
+    expect(zoneAtPoint({ x: 210, y: 250 }, [building, parking], { scale: 0.5 })?.id).toBe(
+      'building',
+    );
   });
 });
 

@@ -24,13 +24,11 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { PNG } from 'pngjs';
 import {
   LIGHT,
   artworkToPercent,
   codeSizePx,
   extrudePolygon,
-  heightFor,
   pointInPolygon,
   polygonArea,
   polygonBounds,
@@ -39,8 +37,8 @@ import {
   wallHeightPx,
   zoneAtPoint,
 } from '../src/map/geometry.ts';
-import { MAP_IMAGE, ZONE_BY_ID, ZONES } from '../src/map/zones.ts';
-import type { Zone } from '../src/types.ts';
+import { MAP_SPACE, ZONE_BY_ID, ZONES } from '../src/map/zones.ts';
+import type { Box, Polygon, Zone } from '../src/types.ts';
 
 /* ─────────────────────────── Configuración ─────────────────────────── */
 
@@ -81,16 +79,6 @@ const CLUSTER_LOST_DESCRIPTION = 'Lo dejé en el banco de la entrada del edifici
 const CLUSTER_FOUND_ITEM = 'Termo de acero con una calcomanía';
 const CLUSTER_FOUND_DESCRIPTION = 'Estaba encima de una mesa del pasillo del edificio A.';
 const CLUSTER_FOUND_BLIND = 'Acero gris, calcomanía verde en un lado, tapa con una rayadura.';
-
-/**
- * El recuadro "DATOS GENERALES" del plano oficial: su propia leyenda, con
- * las muestras de color del plan. La app tiene un panel de nombres, así que
- * el recuadro no debe quedar pintado en el arte.
- */
-const DATOS_GENERALES_BOX = { x: 45, y: 515, width: 175, height: 95 };
-
-/** El fondo de la página: con el que el generador tapa la leyenda del plano. */
-const PAGE_GROUND = [0x0f, 0x12, 0x19];
 
 /** Hallazgos sobre la app que la prueba descubre (no son fallos del recorrido). */
 /** La caja que el navegador dibuja: con `left` y `top`, como el DOM. */
@@ -553,14 +541,16 @@ function baseSpot(
         if (!pointInPolygon(point, shape)) continue;
         const landed = landedPoint(raster, point);
         if (!pointInPolygon(landed.artwork, shape)) continue;
-        const covered = zones.some((other) =>
-          (other.fragments?.length ? other.fragments : [other.polygon ?? []]).some((candidate) =>
-            pointInPolygon(
-              landed.artwork,
-              extrudePolygon(candidate, heightFor(other), scale, LIGHT).top,
+        const covered = zones
+          .filter((other) => other.kind === 'building')
+          .some((other) =>
+            (other.fragments?.length ? other.fragments : [other.polygon ?? []]).some((candidate) =>
+              pointInPolygon(
+                landed.artwork,
+                extrudePolygon(candidate, wallHeightPx(other, candidate, scale), scale, LIGHT).top,
+              ),
             ),
-          ),
-        );
+          );
         if (covered) continue;
         if (zoneAtPoint(landed.artwork, zones, { scale })?.id !== zone.id) continue;
         return { zone, point: landed.artwork, client: landed.client };
@@ -576,14 +566,14 @@ function baseSpot(
  */
 function landedPoint(raster: Raster, artworkPoint: Spot): { client: Spot; artwork: Spot } {
   const spot = screenOfArtwork(raster, {
-    x: artworkPoint.x / MAP_IMAGE.width,
-    y: artworkPoint.y / MAP_IMAGE.height,
+    x: artworkPoint.x / MAP_SPACE.width,
+    y: artworkPoint.y / MAP_SPACE.height,
   });
   const client = { x: Math.floor(spot.x), y: Math.floor(spot.y) };
   const under = artworkUnder(raster, client);
   return {
     client,
-    artwork: { x: under.x * MAP_IMAGE.width, y: under.y * MAP_IMAGE.height },
+    artwork: { x: under.x * MAP_SPACE.width, y: under.y * MAP_SPACE.height },
   };
 }
 
@@ -1572,40 +1562,24 @@ async function runJourney(
     // lo alcance.
     await page.evaluate(() => window.scrollTo(0, 0));
 
-    /* ── 2e. El arte que sirve la app no trae la leyenda del plano ──── */
-    // El arte que el servidor entrega: el recuadro "DATOS GENERALES" con sus
-    // muestras de color no debe quedar, porque la app tiene su propia
-    // leyenda y dos leyendas se contradicen.
-    const servedArtwork = await fetch(`${APP_URL}/mapa-itm-dark.png`)
-      .then((response) => response.arrayBuffer())
-      .then((buffer) => PNG.sync.read(Buffer.from(buffer)));
-    let boxPainted = 0;
-    for (
-      let y = DATOS_GENERALES_BOX.y;
-      y < DATOS_GENERALES_BOX.y + DATOS_GENERALES_BOX.height;
-      y += 1
-    ) {
-      for (
-        let x = DATOS_GENERALES_BOX.x;
-        x < DATOS_GENERALES_BOX.x + DATOS_GENERALES_BOX.width;
-        x += 1
-      ) {
-        const i = (y * servedArtwork.width + x) * 4;
-        if (
-          servedArtwork.data[i] !== PAGE_GROUND[0] ||
-          servedArtwork.data[i + 1] !== PAGE_GROUND[1] ||
-          servedArtwork.data[i + 2] !== PAGE_GROUND[2]
-        ) {
-          boxPainted += 1;
-        }
-      }
-    }
+    /* ── 2e. El croquis se dibuja: no es una foto del plano ────────── */
+    // El artwork no tiene ninguna imagen: el suelo es la escena que el
+    // generador trazó desde los colores del plano oficial y los volúmenes
+    // se levantan encima. El recuadro "DATOS GENERALES" del plano no puede
+    // aparecer, porque no hay ninguna foto que lo traiga.
+    const artworkIsVector = await page.evaluate(() => {
+      const svg = document.querySelector<SVGSVGElement>('[data-testid="map-artwork"]');
+      if (!svg) return false;
+      return (
+        svg.querySelector('image') === null && svg.querySelectorAll('[data-ground]').length > 0
+      );
+    });
     record(
       vp,
-      'el recuadro DATOS GENERALES no se pinta en el arte',
-      boxPainted === 0,
-      '0 píxeles ajenos al fondo de la página',
-      `${boxPainted} píxeles pintados en el recuadro`,
+      'el croquis se dibuja: el artwork no tiene ninguna imagen',
+      artworkIsVector,
+      '0 imágenes y el suelo de la escena presente',
+      `${await page.evaluate(() => document.querySelectorAll('[data-testid="map-artwork"] image').length)} imágenes`,
     );
 
     /* ── 3. El croquis se puede acercar con la rueda ──────────────────── */
@@ -1733,8 +1707,8 @@ async function runJourney(
               id: zone.id,
               label: zone.label,
               artwork: {
-                x: (zone.box.x + zone.box.width / 2) / MAP_IMAGE.width,
-                y: (zone.box.y + zone.box.height / 2) / MAP_IMAGE.height,
+                x: (zone.box.x + zone.box.width / 2) / MAP_SPACE.width,
+                y: (zone.box.y + zone.box.height / 2) / MAP_SPACE.height,
               },
             },
           ]
@@ -1750,8 +1724,8 @@ async function runJourney(
         // una zona cuyo centro de caja cae de verdad dentro de su forma.
         resolved: zoneAtPoint(
           {
-            x: candidate.artwork.x * MAP_IMAGE.width,
-            y: candidate.artwork.y * MAP_IMAGE.height,
+            x: candidate.artwork.x * MAP_SPACE.width,
+            y: candidate.artwork.y * MAP_SPACE.height,
           },
           ZONES,
         )?.id,
@@ -2077,56 +2051,81 @@ async function runJourney(
     await page.keyboard.press('Escape');
     await page.locator('[role="dialog"]').waitFor({ state: 'detached' });
 
-    /* ── 6b. Un toque en un fragmento resuelve su construcción ───────── */
-    // El plan corta algunas construcciones en dos con su propio código
-    // impreso: el ala es una forma de su cuenta, fuera de la forma
-    // principal, y un toque sobre ella tiene que resolver la
-    // construcción y no el suelo.
+    /* ── 6b. Un toque en la forma real resuelve su construcción ─────── */
+    // El croquis se dibuja con las formas trazadas del plano, no con las
+    // cajas: una construcción cuya forma no es su caja (una L, un patio)
+    // tiene que resolver a sí misma cuando se la toca, aunque el botón de
+    // su vecina la tape.
     //
     // Lo decide el catálogo: las áreas de toque de la pantalla son cajas
     // de 44px que se solapan entre sí (una construcción pequeña se
     // traga la de al lado), y sólo serán las formas de verdad cuando el
     // croquis se dibuje en SVG.
-    const fragmentZone = ZONE_BY_ID.get('bldg-2h');
-    const wing = fragmentZone?.fragments?.at(-1);
-    const wingPoint = wing ? polygonCentroid(wing) : null;
-    const wingResolved = wingPoint ? zoneAtPoint(wingPoint, ZONES) : null;
-    const outsidePrimary = wingPoint
-      ? !pointInPolygon(wingPoint, fragmentZone?.polygon ?? [])
-      : false;
+    const shaped = ZONES.filter(
+      (zone): zone is Zone & { polygon: Polygon; box: Box } =>
+        zone.kind === 'building' && Boolean(zone.polygon) && Boolean(zone.box),
+    )
+      .map((zone) => {
+        const centroid = polygonCentroid(zone.polygon);
+        return {
+          zone,
+          centroid,
+          inside: centroid ? pointInPolygon(centroid, zone.polygon) : false,
+          offBox: polygonArea(zone.polygon) < zone.box.width * zone.box.height,
+        };
+      })
+      .find((entry) => entry.centroid && entry.inside && entry.offBox);
+    const shapedPoint = shaped?.centroid ?? null;
+    const shapedResolved = shapedPoint ? zoneAtPoint(shapedPoint, ZONES) : null;
     record(
       vp,
-      'un toque en un fragmento resuelve la construcción partida',
-      outsidePrimary && wingResolved?.id === fragmentZone?.id,
-      `el toque en el ala de "${fragmentZone?.id}" (fuera de su forma principal) lo resuelve`,
-      wingResolved ? `${wingResolved.id} · ${wingResolved.label}` : 'nada',
+      'un toque en la forma real de una construcción la resuelve',
+      Boolean(shaped) && shapedResolved?.id === shaped?.zone.id,
+      `el toque en la forma de "${shaped?.zone.id ?? '?'}" lo resuelve`,
+      shapedResolved ? `${shapedResolved.id} · ${shapedResolved.label}` : 'nada',
     );
 
-    /* ── 6c. El toque de verdad: el ala de 2H, en el navegador ─────── */
+    /* ── 6c. El toque de verdad, en el navegador ────────────────────── */
     // El botón del DOM es sólo un área de toque de 44 px y se solapa con el
-    // de sus vecinos: el ala de 2H queda debajo del botón de otro. El toque
-    // lo resuelve la geometría, así que aquí tiene que salir 2H.
-    if (!wingPoint) throw new Error('el catálogo no tiene el ala de bldg-2h');
-    const wingScreen = screenOfArtwork(await rasterOf(page), {
-      x: wingPoint.x / MAP_IMAGE.width,
-      y: wingPoint.y / MAP_IMAGE.height,
-    });
-    await page.mouse.click(wingScreen.x, wingScreen.y);
+    // de sus vecinos: el toque lo resuelve la geometría, así que aquí tiene
+    // que salir la construcción cuya forma se tocó.
+    if (!shapedPoint) throw new Error('el catálogo no tiene una construcción con forma');
+    // El croquis puede venir ampliado de otra prueba: se vuelve a 1× para
+    // que la construcción que se toque esté a la vista.
+    await zoomTo(page, 1, deepCursor);
+    await sleep(300);
+    await page.locator('[data-testid="map-artwork"]').scrollIntoViewIfNeeded();
+    await sleep(150);
+    // La posición en pantalla sale de la matriz del propio SVG: el croquis
+    // puede estar ampliado cuando se toca, y la matriz es la que sabe dónde
+    // está cada punto del artwork.
+    const shapedScreen = await page.evaluate(
+      ([x, y]) => {
+        const svg = document.querySelector<SVGSVGElement>('[data-testid="map-artwork"]');
+        const matrix = svg?.getScreenCTM();
+        if (!matrix) return null;
+        const point = new DOMPoint(x, y).matrixTransform(matrix);
+        return { x: point.x, y: point.y };
+      },
+      [shapedPoint.x, shapedPoint.y],
+    );
+    if (!shapedScreen) throw new Error('no se pudo medir la forma en pantalla');
+    await page.mouse.click(shapedScreen.x, shapedScreen.y);
     await page
       .locator('[role="dialog"]')
       .waitFor({ state: 'visible', timeout: 5000 })
       .catch(() => {});
-    const wingDialog =
+    const shapedDialog =
       (await page.locator('[role="dialog"]').count()) > 0
         ? await textOf(page, '[role="dialog"]')
         : '';
     record(
       vp,
-      'un toque en el ala de 2H abre el diálogo de 2H (no el de la vecina)',
-      wingDialog.includes(fragmentZone?.label ?? ''),
-      `el diálogo dice "${fragmentZone?.label ?? ''}"`,
-      wingDialog.slice(0, 140) ||
-        `no se abrió ningún diálogo (toque en ${wingScreen.x.toFixed(0)}, ${wingScreen.y.toFixed(0)})`,
+      'un toque en la forma abre el diálogo de esa construcción (no el de la vecina)',
+      shapedDialog.includes(shaped?.zone.label ?? ''),
+      `el diálogo dice "${shaped?.zone.label ?? ''}"`,
+      shapedDialog.slice(0, 140) ||
+        `no se abrió ningún diálogo (toque en ${shapedScreen.x.toFixed(0)}, ${shapedScreen.y.toFixed(0)})`,
     );
     await page.keyboard.press('Escape');
     await page
@@ -2776,32 +2775,28 @@ async function runJourney(
       `${await page.locator('[data-testid^="claim-claim-"]').count()} filas`,
     );
 
-    /* ── 20. El croquis que no llega se dice y se puede reintentar ───── */
-    // El servidor responde 200 pero con un cuerpo que no es una imagen: el
-    // croquis "no llega" sin ensuciar la consola con un error de red.
-    await page.route('**/mapa-itm-dark.png', (route) =>
-      route.fulfill({ status: 200, contentType: 'image/png', body: 'no soy una imagen' }),
-    );
+    /* ── 20. El croquis no se descarga: se dibuja ───────────────────── */
+    // El croquis viaja dentro del paquete: no hay ninguna foto que pueda
+    // no llegar. Si el servidor se niega a servir el raster, el mapa ni lo
+    // pide y sigue en pie.
+    let rasterAsked = 0;
+    await page.route('**/mapa-itm-dark.png', async (route) => {
+      rasterAsked += 1;
+      await route.abort();
+    });
     await page.reload({ waitUntil: 'commit' });
-    await page.locator(t('state-error')).waitFor({ state: 'visible' });
+    await page.locator(t('map')).waitFor({ state: 'visible' });
     record(
       vp,
-      'un croquis que no se descarga lo dice y no pinta zonas',
-      (await page.locator(t('state-error')).count()) === 1 &&
-        (await page.locator('[data-zone-id]').count()) === 0,
-      '1 panel state-error y 0 zonas pintadas',
-      `${await page.locator(t('state-error')).count()} panel(es), ${await page.locator('[data-zone-id]').count()} zonas`,
+      'el croquis no pide ninguna foto y se dibuja igual',
+      rasterAsked === 0 &&
+        (await page.locator('[data-zone-id]').count()) > 0 &&
+        (await page.locator('[data-ground]').count()) > 0 &&
+        (await page.locator(t('state-error')).count()) === 0,
+      '0 peticiones de fotos, > 0 zonas, > 0 formas del suelo y ningún error',
+      `${rasterAsked} peticiones, ${await page.locator('[data-zone-id]').count()} zonas, ${await page.locator('[data-ground]').count()} formas, ${await page.locator(t('state-error')).count()} errores`,
     );
     await page.unroute('**/mapa-itm-dark.png');
-    await page.getByRole('button', { name: 'Reintentar' }).click();
-    await page.waitForFunction(() => document.querySelectorAll('[data-zone-id]').length > 0);
-    record(
-      vp,
-      'tras reintentar el croquis vuelve a medirse y las zonas se pintan',
-      (await page.locator('[data-zone-id]').count()) > 0,
-      '> 0 zonas con data-zone-id',
-      `${await page.locator('[data-zone-id]').count()} zonas`,
-    );
 
     /* ── 21. El campus caído se dice con su reintento ─────────────────── */
     // La demostración sabe caerse: con esta bandera el campus no responde.
@@ -2854,7 +2849,7 @@ async function runJourney(
     if (!clusterZone?.polygon) throw new Error('el catálogo no tiene la zona bldg-a');
     const centroid = polygonCentroid(clusterZone.polygon);
     if (!centroid) throw new Error('la zona bldg-a no tiene centro');
-    const expected = artworkToPercent(centroid, MAP_IMAGE);
+    const expected = artworkToPercent(centroid, MAP_SPACE);
 
     const publishInClusterZone = async (kind: 'lost' | 'found') => {
       await page.locator(t('picker-input')).click();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { polygonArea, polygonBounds } from './geometry.ts';
-import { MAP_IMAGE, UNCERTAIN_CODES, ZONE_BY_ID, ZONES } from './zones.ts';
+import { MAP_SPACE, UNCERTAIN_CODES, ZONE_BY_ID, ZONES } from './zones.ts';
 import type { Box, Polygon, Zone, ZoneKind } from '../types.ts';
 
 const KINDS = new Set(['building', 'parking', 'meeting_point', 'internet_module', 'track']);
@@ -26,8 +26,8 @@ function boxOf(zone: Zone): Box {
 }
 
 describe('zone catalogue', () => {
-  it('describes the dark cropped artwork', () => {
-    expect(MAP_IMAGE).toEqual({ src: '/mapa-itm-dark.png', width: 700, height: 647 });
+  it('describes the space the croquis is drawn in', () => {
+    expect(MAP_SPACE).toEqual({ width: 700, height: 647 });
   });
 
   it('gives every zone a unique id', () => {
@@ -47,8 +47,8 @@ describe('zone catalogue', () => {
       expect(height).toBeGreaterThan(0);
       expect(x).toBeGreaterThanOrEqual(0);
       expect(y).toBeGreaterThanOrEqual(0);
-      expect(x + width).toBeLessThanOrEqual(MAP_IMAGE.width);
-      expect(y + height).toBeLessThanOrEqual(MAP_IMAGE.height);
+      expect(x + width).toBeLessThanOrEqual(MAP_SPACE.width);
+      expect(y + height).toBeLessThanOrEqual(MAP_SPACE.height);
     }
   });
 
@@ -244,8 +244,8 @@ describe('footprints', () => {
         for (const [x, y] of ring) {
           expect(x).toBeGreaterThanOrEqual(0);
           expect(y).toBeGreaterThanOrEqual(0);
-          expect(x).toBeLessThanOrEqual(MAP_IMAGE.width);
-          expect(y).toBeLessThanOrEqual(MAP_IMAGE.height);
+          expect(x).toBeLessThanOrEqual(MAP_SPACE.width);
+          expect(y).toBeLessThanOrEqual(MAP_SPACE.height);
         }
       }
     }

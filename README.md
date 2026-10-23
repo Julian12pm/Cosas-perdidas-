@@ -169,21 +169,24 @@ odd/tasks/
 ## The map
 
 The croquis is **drawn by the app**: an inline `<svg viewBox="0 0 700 647">` whose ground layer is
-the official raster re-themed in the app's dark palette (`public/mapa-itm-dark.png`, written by the
-generator), with every building standing on it as an extruded volume — a top face, the two walls
-that face away from one light and a cast shadow.
+the **scene** (`src/map/scene.ts`), the campus traced from the official plan's own colour classes
+into rings, with every building standing on it as an extruded volume — a top face, the two walls
+that face away from one light and a cast shadow. There is no picture of the plan in the interactive
+map: the plan's own shadows, its printed codes and its 1 px linework never reach it.
 
-The footprints are **traced from the raster's own pixels** (the plan prints each code over its
-orange fill, so the holes are filled and the shape is eroded one pixel before the contour is
-traced), and the heights come from the use the plan's own legend declares: a block of classrooms is
-low, a workshop or a laboratory is medium, a gymnasium or the library is tall. Nothing is invented.
+The footprints are **traced from the plan's own pixels** and closed before they are traced, which
+heals the codes the plan prints over its constructions and the bites they cut in them; the heights
+come from the use the plan's own legend declares: a block of classrooms is low, a workshop or a
+laboratory is medium, a gymnasium or the library is tall. Nothing is invented.
 
 ```
-scripts/extract-zones.mjs   -> classifies the plan, paints the dark artwork, traces the
-                               footprints and writes src/map/zones.js
-src/map/zones.js            -> the catalogue: 90 zones with their code, name, unit, kind,
+scripts/extract-zones.ts   -> classifies the plan, traces the scene and the footprints and
+                               writes src/map/scene.ts and src/map/zones.ts
+src/map/scene.ts           -> the ground of the croquis: the campus surface, the lawns, the
+                               athletics track, the courts and the brick lots, as rings
+src/map/zones.ts           -> the catalogue: 90 zones with their code, name, unit, kind,
                                safe point, box and traced fragments
-src/map/geometry.js         -> the pure maths: the coordinate model, the extrusion, the
+src/map/geometry.ts        -> the pure maths: the coordinate model, the extrusion, the
                                hit testing and the zone search
 ```
 
