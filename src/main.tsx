@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App.jsx';
+import App from './App.tsx';
 import { apiBaseUrl, isApiConfigured } from './api.ts';
 import './index.css';
 
@@ -17,7 +17,9 @@ const MAGIC_LINK_PATH = /^\/auth\/magic-link\/[^/]+\/?$/;
 if (isApiConfigured() && MAGIC_LINK_PATH.test(window.location.pathname)) {
   window.location.replace(`${apiBaseUrl()}${window.location.pathname}${window.location.search}`);
 } else {
-  ReactDOM.createRoot(document.getElementById('root')).render(
+  const root = document.getElementById('root');
+  if (!root) throw new Error('la página no tiene el nodo #root');
+  ReactDOM.createRoot(root).render(
     <React.StrictMode>
       <App />
     </React.StrictMode>,
