@@ -270,6 +270,15 @@ interface GeneratedZone extends Omit<Zone, 'box' | 'polygon' | 'fragments'> {
   fragments?: Pixel[][];
 }
 
+/** Una construcción del catálogo: su caja, su código y las piezas que la forman. */
+interface Building extends PixelBox {
+  index: number;
+  pixels: Pixel[];
+  dilated?: Pixel[];
+  code: string | null;
+  members: Blob[];
+}
+
 /** Una mancha de una capa: su caja, sus píxeles y el índice que la nombra. */
 interface Blob extends PixelBox {
   index: number;
@@ -592,13 +601,15 @@ for (const blob of buildingBlobs) {
   groups.set(blob.index, [blob]);
 }
 
-const buildingBoxes = [...groups.values()].map((members) => {
+const buildingBoxes: Building[] = [...groups.values()].map((members) => {
   const box = groupBox(members);
   const coded = members.find((m) => codeOfBlob.has(m.index));
   return {
     ...box,
+    index: coded?.index ?? members[0]?.index ?? 0,
+    pixels: members.flatMap((m) => m.pixels),
     area: members.reduce((sum, m) => sum + m.area, 0),
-    code: coded ? codeOfBlob.get(coded.index) : null,
+    code: coded ? (codeOfBlob.get(coded.index) ?? null) : null,
     // The members carry their pixels: the dark artwork paints the two safe
     // points with the brand amber and needs to know exactly which pixels
     // belong to them.
@@ -904,7 +915,7 @@ function simplifyRing(ring: Pixel[], tolerance: number): Pixel[] {
  */
 const FRAGMENT_SHARE = 0.1;
 
-function footprintOf(host: Blob & { members: Blob[] }): Pixel[][] {
+function footprintOf(host: Building): Pixel[][] {
   const rings: { ring: Pixel[]; area: number }[] = [];
   for (const member of host.members) {
     // The holes of the component are the printed codes, and the
@@ -1427,7 +1438,7 @@ for (const [code, host] of bound) {
 // catalogue with a null code so the map never loses a footprint.
 const unknownBuildings = buildingBoxes.filter((host) => !usedBoxes.has(host));
 unknownBuildings.forEach((host, index) => {
-  const fragments = footprintOf(host as unknown as Blob & { members: Blob[] });
+  const fragments = footprintOf(host);
   zones.push({
     id: `bldg-unknown-${String(index + 1).padStart(2, '0')}`,
     code: null,

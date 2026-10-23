@@ -159,16 +159,16 @@ Checks: reading them, and a local run of each command.
 
 ## Tasks
 
-| ID  | Specs      | Work                                                                                                                     | Route  | Status  | Verification                                                           |
-| --- | ---------- | ------------------------------------------------------------------------------------------------------------------------ | ------ | ------- | ---------------------------------------------------------------------- |
-| T1  | S2, S3, S4 | `src/types.ts` (the vocabulary) and `src/api.ts` (the client, typed with the API's contracts); the tsconfig's new flags. | inline | done    | `tsc --noEmit` + `vp check` + `vp test` (366) + the demo journey (366) |
-| T2  | S1, S7     | `src/map/zones.ts` and `src/map/geometry.ts`: the catalogue and the geometry, typed.                                     | inline | done    | `tsc --noEmit` + `vp test` (366) + both journeys (366 + 26)            |
-| T3  | S1, S4     | `src/data.ts`: the demo data and the projections, typed with the vocabulary.                                             | inline | done    | `tsc --noEmit` + `vp test` (366) + the demo journey (366)              |
-| T4  | S1, S4, S5 | The twelve components: `.tsx`, typed props, typed state.                                                                 | inline | done    | `tsc --noEmit` + `vp test` (366) + the demo journey (366)              |
-| T5  | S1, S4, S5 | `src/App.tsx`: the app's state machine, typed.                                                                           | inline | done    | `tsc --noEmit` + `vp test` (366) + the demo journey (366)              |
-| T6  | S1, S8     | The four test files: `.ts`, typed.                                                                                       | inline | done    | `tsc --noEmit` + `vp test` (366) + the demo journey (366)              |
-| T7  | S1, S7     | The four scripts: `.ts`, typed; the generator keeps writing a typed catalogue.                                           | inline | planned | the journeys + the type check                                          |
-| T8  | S2, S5, S9 | The tightening: `allowJs` off, the greps of S5 clean, the CI, the package.json, the README.                              | inline | planned | the greps + the three gates                                            |
+| ID  | Specs      | Work                                                                                                                     | Route  | Status | Verification                                                         |
+| --- | ---------- | ------------------------------------------------------------------------------------------------------------------------ | ------ | ------ | -------------------------------------------------------------------- |
+| T1  | S2, S3, S4 | `src/types.ts` (the vocabulary) and `src/api.ts` (the client, typed with the API's contracts); the tsconfig's new flags. | inline | done   | `57ec898` — the type check, the unit tests, the demo journey         |
+| T2  | S1, S7     | `src/map/zones.ts` and `src/map/geometry.ts`: the catalogue and the geometry, typed.                                     | inline | done   | `f3381e0` — the type check, the unit tests, both journeys            |
+| T3  | S1, S4     | `src/data.ts`: the demo data and the projections, typed with the vocabulary.                                             | inline | done   | `06242d9` — the type check, the unit tests, the demo journey         |
+| T4  | S1, S4, S5 | The twelve components: `.tsx`, typed props, typed state.                                                                 | inline | done   | `61711ed` + `e541899` + `c9fb3a8` — the type check, the journey      |
+| T5  | S1, S4, S5 | `src/App.tsx`: the app's state machine, typed.                                                                           | inline | done   | `f1e712a` — the type check, the unit tests, the demo journey         |
+| T6  | S1, S8     | The four test files: `.ts`, typed.                                                                                       | inline | done   | `ddee31b` — the type check, the unit tests, the demo journey         |
+| T7  | S1, S7     | The four scripts: `.ts`, typed; the generator keeps writing a typed catalogue.                                           | inline | done   | `6630baa` — the type check, both journeys, the regenerated catalogue |
+| T8  | S2, S5, S9 | The tightening: `allowJs` off, the greps of S5 clean, the CI, the package.json, the README.                              | inline | done   | this commit — the greps, the three gates                             |
 
 ### Risks
 
@@ -198,3 +198,47 @@ mechanical part (renaming the files and rewriting the import specifiers) is a sc
 semantic part (writing the types) is the migration itself. What oxc gives us is the gate:
 `vp check`'s type-aware linting through tsgolint, which reads the TypeScript program the same way
 `tsc` does.
+
+**L3 — 2026-10-23 — What oxc does and does not do.** Oxc has the parser, the transformer, oxlint, oxfmt and
+the type checker (tsgolint, which `vp check` already runs). It does **not** have a JavaScript-to-
+TypeScript migration that writes the types: the mechanical part (renaming the files and rewriting the
+import specifiers) is a script's job, and the semantic part (writing the types) is the migration
+itself. What oxc gives us is the gate: `vp check`'s type-aware linting through tsgolint, which reads
+the TypeScript program the same way `tsc` does.
+
+**L4 — 2026-10-23 — The vocabulary came first, and it came from the API.** `src/types.ts` names the
+shapes the app draws (the report, the claim, the session, the zone, the group) and inherits from the
+API's zod contracts the ones the API already validates: the client answers are the API's own types,
+imported with `import type`, so nothing extra travels in the bundle and a change in the contract
+breaks the app's type check. The app's projection of a report is NOT the API's report (the API says
+`kind` and `zone`, the app draws `type` and `zoneLabel`), and the translation lives in `src/data.ts`.
+
+**L5 — 2026-10-23 — What the types found.** The app read the failure of a request as if it always
+had a `kind` and a `payload`; it now narrows the error to the client's own error class, in the four
+places that catch one. A zone of the catalogue may have no box and no shape: the app has always
+tolerated both (the map skips the zone, the legend skips the row) and the type now says so instead of
+the code pretending it could not happen. The geometry took polygons that could be nullish, which meant
+no caller could write a polygon literal without a cast; the polygon is a polygon now. And the API
+read the catalogue as JavaScript and evaluated it in a VM, because the file was JavaScript: it now
+imports it, because the catalogue is the single source of the campus and a module says what it is.
+
+**L6 — 2026-10-23 — The scripts are TypeScript and Node runs them.** The four scripts that guard the
+project (the two browser journeys, the semantic tree and the generator of the catalogue) run under
+Node's own type stripping, which is why the tsconfig asks for erasable code: no enumerations, no
+namespaces, no constructor properties. pngjs does not ship its types, so the two things the scripts
+use of it are declared in `scripts/pngjs.d.ts` instead of installing a package for them. The generator
+writes a typed catalogue: the file it emits declares the shape of a zone and the annotation checks the
+data it writes. The regenerated catalogue is byte for byte the one that was committed, header apart.
+
+**L7 — 2026-10-23 — The evidence.** `tsc --noEmit`: clean over the whole repository (the app, the API
+and the scripts). `vp check`: clean (format, lint and the type-aware lint). `vp test`: 366 pass. The
+demo journey: 366/366 assertions, 0 console errors. The full-stack journey: 26/26 against a real
+Postgres 16, 0 console errors. The greps of S5 come back empty: no `any`, no `@ts-ignore`, no
+`@ts-expect-error`, no `as unknown as`. And `find` says what S1 asked: there is no `.js`, no `.jsx` and
+no `.mjs` left in the repository.
+
+**L8 — 2026-10-23 — What is still open.** Nothing in this phase. The one thing the migration did not
+do is decide what the app's `Zone` may be missing: the catalogue always has a box and a shape, and
+the types now say the app tolerates their absence (the map skips the zone, the legend skips the row)
+instead of the code pretending it could not happen. If the catalogue is ever generated without them,
+the type is where it will be noticed.

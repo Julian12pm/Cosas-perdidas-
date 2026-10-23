@@ -41,7 +41,7 @@ click.
 | Package manager | **pnpm** 12.14.0 (pinned through `packageManager`)                                                           |
 | Runtime         | **Node 24.22.1** LTS (pinned through `.node-version`)                                                        |
 | UI              | React 19, Vite 8, Tailwind CSS 4 (CSS-first `@theme` in `src/index.css`)                                     |
-| Language        | JavaScript today, TypeScript by migration (`tsconfig.json` with `allowJs` + `jsx`)                           |
+| Language        | **TypeScript** everywhere (strict), from the browser bundle to the scripts                                   |
 | Tests           | Vitest 5 (bundled with Vite+) via `vp test`                                                                  |
 
 **Backend** (built): Hono 4.13 + Zod 4.6 contracts, PostgreSQL 16 with Drizzle 0.45 (12 tables, generated
@@ -232,6 +232,11 @@ A phone has no cursor, and the map has to work without one.
   — the audience is the campus.
 - **Commits**: Conventional Commits, one reviewable work unit per commit.
 - **Tests first**: a new rule gets a failing test, then the implementation, then a refactor.
+- **Types**: everything is TypeScript and strict — the browser bundle, the API and the scripts. The app's
+  own shapes live in `src/types.ts`; the ones the API already validates are inherited from its zod
+  contracts, so a contract change breaks the app's type check. No `any`, no `@ts-ignore`, no
+  `as unknown as`. Node runs the `.ts` scripts with its own type stripping, so the code has to stay
+  erasable.
 - **No dead code**: nothing ships that nothing imports.
 - **No false security**: never render a secret in the UI, never describe an unverified
   mechanism as a protection. The prototype used to print the release code on screen; that is
