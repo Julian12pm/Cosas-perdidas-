@@ -289,3 +289,14 @@ real shape, because no construction is split any more.
 0 console errors, 2 viewports. Lightpanda's semantic tree: the listbox and its 90 named options.
 The full-stack journey: 26/26 against a real Postgres. The artwork's 50 KB raster is gone; the
 scene that replaced it is 40 KB of generated TypeScript.
+
+**L16 — 2026-10-24 — The chain landed, and the last PR needed a second attempt.** The eleven
+first PRs merged in order; the twelfth did not, and the reason was the history, not the content:
+`main` carried the chain's commits **replayed** by the merges, while the head of the twelfth PR
+carried the **originals**, so the common ancestor fell back to the old first PR and GitHub replayed
+the whole chain onto `main` — twenty files in conflict. Merging `main` into that head was tried and
+rejected: with an ancestor that old, the merge resurrects the raster the twelfth PR had deleted.
+The twelve commits were therefore replayed onto `main` directly (a new branch, a push, no force),
+and the resulting tree was verified to be **byte-identical** to the head it replaces. The twelfth
+PR is #14, and #12 is closed as its predecessor. `main` now holds the whole chain, the raster is
+gone, and the CI is green on it.
