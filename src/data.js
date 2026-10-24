@@ -23,6 +23,10 @@ export const REPORT_STATUS_LABELS = {
   archived: 'Archivado',
 };
 
+// Un estado que la app no conoce se dice en español: nunca se muestra el
+// enumerador crudo (que es inglés y no le dice nada al estudiante).
+export const UNKNOWN_STATUS_LABEL = 'Sin estado';
+
 // La sesión con la que corre la demostración cuando no hay API configurada.
 export const MOCK_SESSION = {
   id: 'usr-demo-01',
@@ -272,4 +276,31 @@ export function formatAge(timestamp) {
 
   const months = Math.max(1, Math.floor(days / 30));
   return months === 1 ? 'Hace 1 mes' : `Hace ${months} meses`;
+}
+
+/**
+ * Cuánto tarda la demostración en responder. La pantalla de carga dura lo que
+ * duraría una petición real, para que el estado no sea decorativo y se vea
+ * igual cuando el campus responda de verdad.
+ */
+export const DEMO_LATENCY_MS = 250;
+
+/**
+ * Los datos del campus: los reportes del mapa y los reclamos de la bandeja.
+ * La demostración responde como un servidor: tarda lo que tardaría la
+ * petición y, sin conexión, la petición ni siquiera llega.
+ *
+ * La demostración también sabe caerse: con `window.__campusFailure` la carga
+ * falla como lo haría un campus caído, para que el estado de error sea un
+ * estado de verdad y no una rama muerta.
+ */
+export async function loadCampusData() {
+  await new Promise((resolve) => setTimeout(resolve, DEMO_LATENCY_MS));
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error('offline');
+  }
+  if (typeof window !== 'undefined' && window.__campusFailure === true) {
+    throw new Error('campus-unavailable');
+  }
+  return { reports: MOCK_PINS, claims: MOCK_CLAIMS };
 }

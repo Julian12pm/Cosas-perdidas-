@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { MagnifierIcon } from '@solar-icons/react/bold/magnifier';
+import { EmptyState, LoadingState } from './StateMessage.jsx';
 import { searchZones } from '../map/geometry.js';
 
 /*
@@ -17,7 +19,7 @@ const UNIT_LABELS = {
   campus: 'Campus',
 };
 
-export default function ZonePicker({ zones, onSelect }) {
+export default function ZonePicker({ zones, onSelect, state = 'ready' }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -75,11 +77,13 @@ export default function ZonePicker({ zones, onSelect }) {
 
   return (
     <div ref={containerRef} className="relative w-full max-w-2xl">
-      <div className="flex items-center gap-2 rounded-xl border border-surface-600/60 bg-surface-800/80 px-3 py-2.5 transition-colors focus-within:border-brand-500/70 focus-within:ring-2 focus-within:ring-focus">
-        <span className="text-text-muted" aria-hidden="true">
-          🔎
-        </span>
+      <div
+        data-testid="picker-trigger"
+        className="flex items-center gap-2 rounded-xl border border-surface-600/60 bg-surface-800/80 px-3 py-2 transition-colors focus-within:border-brand-500/70 focus-within:ring-2 focus-within:ring-focus"
+      >
+        <MagnifierIcon size={16} className="shrink-0 text-text-muted" aria-hidden="true" />
         <input
+          data-testid="picker-input"
           role="combobox"
           aria-expanded={open}
           aria-controls={LISTBOX_ID}
@@ -97,38 +101,58 @@ export default function ZonePicker({ zones, onSelect }) {
           onFocus={() => setOpen(true)}
           onKeyDown={handleKeyDown}
           placeholder="Busca un edificio o área del campus…"
-          className="w-full bg-transparent text-sm text-white placeholder-surface-500 outline-none"
+          className="min-h-[44px] w-full bg-transparent text-base text-white placeholder-surface-500 outline-none sm:text-sm"
         />
       </div>
 
-      {open && (
+      {/* El campo nunca desaparece: quien empieza a escribir en los primeros
+          segundos no pierde lo que escribió ni el foco. La carga va al lado. */}
+      {state === 'loading' && (
+        <div className="mt-2">
+          <LoadingState compact title="Cargando las zonas del campus…" />
+        </div>
+      )}
+
+      {open && state !== 'loading' && (
         <ul
           id={LISTBOX_ID}
           ref={listRef}
           role="listbox"
           aria-label="Zonas del campus"
-          className="absolute z-30 mt-2 max-h-72 w-full overflow-y-auto rounded-xl border border-surface-600/60 bg-surface-800/95 shadow-2xl backdrop-blur"
+          className="absolute z-30 mt-2 max-h-[min(18rem,60dvh)] w-full overflow-y-auto rounded-xl border border-surface-600/60 bg-surface-800/95 shadow-2xl backdrop-blur"
         >
           {results.length === 0 ? (
-            <li
-              role="option"
-              aria-selected={false}
-              aria-disabled="true"
-              className="px-3 py-4 text-center text-sm text-text-muted"
-            >
-              Sin coincidencias
-            </li>
+            state === 'ready' ? (
+              <li className="list-none p-2">
+                <EmptyState
+                  compact
+                  testId="state-empty-picker"
+                  title="Ninguna zona coincide"
+                  description="Prueba con el nombre del edificio o con su clave."
+                />
+              </li>
+            ) : (
+              <li
+                role="option"
+                aria-selected="false"
+                aria-disabled="true"
+                className="px-3 py-4 text-center text-sm text-text-muted"
+              >
+                Sin coincidencias
+              </li>
+            )
           ) : (
             results.map((zone, index) => (
               <li
                 key={zone.id}
                 id={`${LISTBOX_ID}-${index}`}
+                data-testid={`picker-option-${zone.id}`}
                 role="option"
                 aria-selected={index === activeIndex}
                 onMouseEnter={() => setActiveIndex(index)}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => select(zone)}
-                className={`flex cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sm transition-colors ${
+                className={`flex min-h-[44px] cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sm transition-colors ${
                   index === activeIndex
                     ? 'bg-brand-500/20 text-white'
                     : 'text-surface-200 hover:bg-surface-700/60'

@@ -38,6 +38,9 @@ dist-ssr
 # Zone extraction debug overlay (verification artefact, never shipped)
 public/zones-debug.png
 
+# Smoke journey evidence (screenshots and semantic-tree dumps, never source)
+.e2e/
+
 # Vite+ / pnpm
 .pnpm-store/
 .vite-hooks/

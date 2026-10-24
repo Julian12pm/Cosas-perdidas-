@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import Modal from './Modal.jsx';
 import ContactCard from './ContactCard.jsx';
-import { formatAge } from '../data.js';
+import { EmptyState, ErrorState, LoadingState } from './StateMessage.jsx';
+import { UNKNOWN_STATUS_LABEL, formatAge } from '../data.js';
 
 /*
  * La bandeja de reclamos: lo que los demás piden contra tus reportes y lo que
@@ -18,9 +19,12 @@ const STATUS_LABELS = {
 };
 
 /** Una fila de la bandeja, con el dato ciego que ofrece el reclamante. */
-function ClaimRow({ claim, actions }) {
+function ClaimRow({ claim, actions, single = false }) {
   return (
-    <li className="rounded-xl border border-surface-600/50 bg-surface-700/30 p-3">
+    <li
+      data-testid={`claim-${claim.id}`}
+      className="rounded-xl border border-surface-600/50 bg-surface-700/30 p-3"
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-semibold text-white">{claim.reportTitle}</p>
@@ -29,7 +33,7 @@ function ClaimRow({ claim, actions }) {
           </p>
         </div>
         <span className="rounded-full bg-surface-700/70 px-2.5 py-0.5 text-xs font-semibold text-surface-200">
-          {STATUS_LABELS[claim.status] ?? claim.status}
+          {STATUS_LABELS[claim.status] ?? UNKNOWN_STATUS_LABEL}
         </span>
       </div>
 
@@ -46,18 +50,31 @@ function ClaimRow({ claim, actions }) {
 
       {claim.status === 'approved' && claim.contact && (
         <div className="mt-3">
-          <ContactCard contact={claim.contact} />
+          <ContactCard contact={claim.contact} claimId={claim.id} single={single} />
         </div>
       )}
     </li>
   );
 }
 
-export default function ClaimInbox({ claims, onApprove, onReject }) {
+export default function ClaimInbox({
+  claims,
+  onApprove,
+  onReject,
+  state = 'ready',
+  onRetry,
+  offline = false,
+}) {
   const [decision, setDecision] = useState(null);
 
   const incoming = claims.filter((claim) => claim.direction === 'incoming');
   const outgoing = claims.filter((claim) => claim.direction === 'outgoing');
+  const pending = incoming.filter((claim) => claim.status === 'pending');
+  const withContact = incoming.filter((claim) => claim.status === 'approved' && claim.contact);
+  // Un nombre de prueba sólo sirve si es único: el nombre corto se usa
+  // cuando el elemento es el único de su especie en la pantalla.
+  const onlyPending = pending.length === 1;
+  const onlyContact = withContact.length === 1;
 
   const confirm = () => {
     if (!decision) return;
@@ -67,7 +84,7 @@ export default function ClaimInbox({ claims, onApprove, onReject }) {
   };
 
   return (
-    <section className="w-full max-w-3xl space-y-5">
+    <section data-testid="inbox" className="w-full max-w-3xl space-y-5">
       <div>
         <h2 className="mb-1 text-lg font-bold text-white">Bandeja de reclamos</h2>
         <p className="text-sm text-text-muted">
@@ -76,62 +93,97 @@ export default function ClaimInbox({ claims, onApprove, onReject }) {
         </p>
       </div>
 
-      <div>
-        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-brand-300">
-          Recibidos ({incoming.length})
-        </h3>
-        {incoming.length === 0 ? (
-          <p className="rounded-xl border border-surface-600/50 bg-surface-800 p-3 text-sm text-text-muted">
-            Nadie ha reclamado tus reportes.
-          </p>
-        ) : (
-          <ul className="space-y-3">
-            {incoming.map((claim) => (
-              <ClaimRow
-                key={claim.id}
-                claim={claim}
-                actions={
-                  claim.status === 'pending' ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setDecision({ claim, kind: 'approve' })}
-                        className="cursor-pointer rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-all hover:from-green-500 hover:to-green-600 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-                      >
-                        Aprobar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDecision({ claim, kind: 'reject' })}
-                        className="cursor-pointer rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-                      >
-                        Rechazar
-                      </button>
-                    </div>
-                  ) : null
-                }
-              />
-            ))}
-          </ul>
-        )}
-      </div>
+      {state === 'loading' && (
+        <LoadingState
+          title="Cargando la bandeja de reclamos…"
+          description="Vemos quién reclamó tus reportes y qué pediste tú."
+        />
+      )}
 
-      <div>
-        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-brand-300">
-          Enviados ({outgoing.length})
-        </h3>
-        {outgoing.length === 0 ? (
-          <p className="rounded-xl border border-surface-600/50 bg-surface-800 p-3 text-sm text-text-muted">
-            No has reclamado ningún reporte.
-          </p>
-        ) : (
-          <ul className="space-y-3">
-            {outgoing.map((claim) => (
-              <ClaimRow key={claim.id} claim={claim} actions={null} />
-            ))}
-          </ul>
-        )}
-      </div>
+      {(state === 'error' || state === 'offline') && (
+        <ErrorState
+          title="No pudimos cargar la bandeja"
+          description="Revisa tu conexión e inténtalo de nuevo."
+          onRetry={onRetry}
+        />
+      )}
+
+      {state === 'ready' && incoming.length === 0 && outgoing.length === 0 && (
+        <EmptyState
+          title="No hay reclamos todavía"
+          description="Cuando alguien reclame uno de tus reportes, o tú reclames el de otra persona, aparecerá aquí."
+        />
+      )}
+
+      {state === 'ready' && (incoming.length > 0 || outgoing.length > 0) && (
+        <>
+          <div>
+            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-brand-300">
+              Recibidos ({incoming.length})
+            </h3>
+            {incoming.length === 0 ? (
+              <p className="rounded-xl border border-surface-600/50 bg-surface-800 p-3 text-sm text-text-muted">
+                Nadie ha reclamado tus reportes.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {incoming.map((claim) => (
+                  <ClaimRow
+                    key={claim.id}
+                    claim={claim}
+                    single={onlyContact}
+                    actions={
+                      claim.status === 'pending' ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            data-testid={`claim-approve-${claim.id}`}
+                            disabled={offline}
+                            onClick={() => setDecision({ claim, kind: 'approve' })}
+                            className="min-h-[44px] cursor-pointer rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-all hover:from-green-500 hover:to-green-600 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                          >
+                            <span data-testid={onlyPending ? 'claim-approve' : undefined}>
+                              Aprobar
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            data-testid={`claim-reject-${claim.id}`}
+                            disabled={offline}
+                            onClick={() => setDecision({ claim, kind: 'reject' })}
+                            className="min-h-[44px] cursor-pointer rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                          >
+                            <span data-testid={onlyPending ? 'claim-reject' : undefined}>
+                              Rechazar
+                            </span>
+                          </button>
+                        </div>
+                      ) : null
+                    }
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div>
+            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-brand-300">
+              Enviados ({outgoing.length})
+            </h3>
+            {outgoing.length === 0 ? (
+              <p className="rounded-xl border border-surface-600/50 bg-surface-800 p-3 text-sm text-text-muted">
+                No has reclamado ningún reporte.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {outgoing.map((claim) => (
+                  <ClaimRow key={claim.id} claim={claim} actions={null} />
+                ))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
 
       <Modal
         open={decision !== null}
@@ -147,14 +199,14 @@ export default function ClaimInbox({ claims, onApprove, onReject }) {
             <button
               type="button"
               onClick={() => setDecision(null)}
-              className="cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
             >
               Cancelar
             </button>
             <button
               type="button"
               onClick={confirm}
-              className={`cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold text-white transition-all focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+              className={`min-h-[44px] cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold text-white transition-all focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
                 decision?.kind === 'reject'
                   ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600'
                   : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600'
