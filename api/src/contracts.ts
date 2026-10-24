@@ -39,6 +39,8 @@ export const publicReportSchema: z.ZodType<PublicReport> = z.object({
   title: z.string(),
   public_description: z.string(),
   zone: z.string(),
+  map_x: z.number().nullable(),
+  map_y: z.number().nullable(),
   alias: z.string(),
   age_bucket: ageBucketSchema,
   status: reportStatusSchema,

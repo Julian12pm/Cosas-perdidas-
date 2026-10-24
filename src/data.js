@@ -4,6 +4,100 @@ import { ZONE_BY_ID } from './map/zones.js';
 // estudiante que lo tiene físicamente. Seis dígitos = un millón de combinaciones.
 export const RELEASE_KEY_LENGTH = 6;
 
+// Intentos que puede quemar el estudiante que tiene el objeto antes de que su
+// pareja (clave, portador) quede en espera. La clave nunca se bloquea:
+// bloquearla sería un ataque de denegación de servicio contra el dueño.
+export const RELEASE_KEY_MAX_ATTEMPTS = 5;
+
+// Los dominios que el instituto usa para sus buzones: el correo institucional
+// es la identidad, no hay registro anónimo.
+export const INSTITUTIONAL_DOMAINS = ['morelia.tecnm.mx', 'itmorelia.edu.mx'];
+
+// Los estados de un reporte, como los lee el estudiante.
+export const REPORT_STATUS_LABELS = {
+  open: 'Abierto',
+  pending_claim: 'Esperando reclamo',
+  in_custody: 'En resguardo',
+  resolved: 'Resuelto',
+  expired: 'Expirado',
+  archived: 'Archivado',
+};
+
+// La sesión con la que corre la demostración cuando no hay API configurada.
+export const MOCK_SESSION = {
+  id: 'usr-demo-01',
+  email: 'L2030451@morelia.tecnm.mx',
+  displayName: 'María Fernanda Ruiz',
+  role: 'student',
+};
+
+// Los demás estudiantes del campus que aparecen en los datos de arranque.
+const MOCK_STUDENTS = {
+  'usr-demo-02': { displayName: 'Ana Lucía Ramírez', email: 'L2030452@morelia.tecnm.mx' },
+  'usr-demo-03': { displayName: 'Miguel Ángel Ríos', email: 'L1820447@morelia.tecnm.mx' },
+};
+
+/**
+ * La tarjeta de contacto de un estudiante del arranque; null cuando no se
+ * conoce. El contacto sólo se libera después de aprobar un reclamo.
+ */
+export function contactFor(userId) {
+  if (userId === MOCK_SESSION.id) {
+    return { display_name: MOCK_SESSION.displayName, email: MOCK_SESSION.email };
+  }
+  const student = MOCK_STUDENTS[userId];
+  if (!student) return null;
+  return { display_name: student.displayName, email: student.email };
+}
+
+/**
+ * Alias estable derivado del identificador del usuario, con la misma forma que
+ * usa el API: `Estudiante #XXXX`. Vive aquí y no en `api/` porque el paquete
+ * del navegador no puede arrastrar código de servidor.
+ */
+export function reporterAlias(userId) {
+  return `Estudiante #${aliasSuffix(userId)}`;
+}
+
+/** Los cuatro últimos dígitos del hash FNV-1a del identificador, en base 36. */
+function aliasSuffix(id) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36).toUpperCase().padStart(4, '0').slice(-4);
+}
+
+/**
+ * La misma regla que el API: sólo un buzón de un dominio del instituto abre
+ * una sesión. Un subdominio se rechaza, o `evil.morelia.tecnm.mx` pasaría.
+ */
+export function isInstitutionalEmail(email) {
+  const trimmed = String(email ?? '').trim();
+  const at = trimmed.lastIndexOf('@');
+  if (at <= 0) return false;
+
+  const local = trimmed.slice(0, at);
+  const domain = trimmed.slice(at + 1).toLowerCase();
+  if (local.length === 0 || domain.length === 0 || local.includes('@')) return false;
+
+  return INSTITUTIONAL_DOMAINS.includes(domain);
+}
+
+/**
+ * Copia un texto al portapapeles; devuelve si el navegador lo permitió, para
+ * que la interfaz pueda avisar cuando el portapapeles no está disponible.
+ */
+export async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Los pines de ejemplo apuntan a zonas reales del catálogo, para que los datos
 // de arranque no describan un campus que no existe.
 function mockZone(zoneId) {
@@ -11,7 +105,14 @@ function mockZone(zoneId) {
   return { zoneId: zone.id, zoneLabel: zone.label };
 }
 
-// Datos ficticios iniciales de objetos perdidos/encontrados en el campus
+/** Una marca de tiempo de hace unas horas, para que la demo nunca envejezca. */
+function hoursAgo(hours) {
+  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+}
+
+// Datos ficticios iniciales de objetos perdidos/encontrados en el campus.
+// Cada reporte lleva su dueño: la identidad es la del estudiante que entró
+// con su correo institucional, nunca un nombre escrito a mano.
 export const MOCK_PINS = [
   {
     id: 'pin-1',
@@ -20,9 +121,14 @@ export const MOCK_PINS = [
     y: 30.6,
     item: 'Laptop HP gris con sticker de React',
     description: 'Olvidé mi laptop en el edificio E, segundo piso, aula E3.',
-    reportedBy: 'Carlos M.',
-    timestamp: '2026-09-28T14:30:00',
-    unlockCode: '483921',
+    ownerId: MOCK_SESSION.id,
+    alias: reporterAlias(MOCK_SESSION.id),
+    status: 'pending_claim',
+    timestamp: hoursAgo(26),
+    releaseKey: '483921',
+    releaseAttempts: 0,
+    releaseMaxAttempts: RELEASE_KEY_MAX_ATTEMPTS,
+    blindDetail: null,
     ...mockZone('bldg-e'),
   },
   {
@@ -30,11 +136,17 @@ export const MOCK_PINS = [
     type: 'found', // Pin Verde - "Encontré algo aquí"
     x: 39.18, // Centro de R · Cafetería
     y: 57.34,
-    item: 'Calculadora científica Casio fx-991',
-    description: 'Encontrada en banca cerca de la cafetería.',
-    reportedBy: 'Ana L.',
-    timestamp: '2026-09-29T09:15:00',
-    unlockCode: '726104',
+    item: 'Calculadora científica',
+    description: 'Encontrada en una banca cerca de la cafetería.',
+    ownerId: 'usr-demo-02',
+    alias: reporterAlias('usr-demo-02'),
+    status: 'open',
+    timestamp: hoursAgo(5),
+    releaseKey: null,
+    releaseAttempts: 0,
+    releaseMaxAttempts: RELEASE_KEY_MAX_ATTEMPTS,
+    // El dato ciego es privado: lo ve quien encontró el objeto, nadie más.
+    blindDetail: 'Marca Casio fx-991SP, gris claro, con un lapicero azul pegado con cinta.',
     ...mockZone('bldg-r'),
   },
   {
@@ -44,22 +156,67 @@ export const MOCK_PINS = [
     y: 35.32,
     item: 'Mochila negra Jansport',
     description: 'La dejé en las gradas de la pista de atletismo durante el entrenamiento.',
-    reportedBy: 'Miguel R.',
-    timestamp: '2026-09-29T17:45:00',
-    unlockCode: '550183',
+    ownerId: 'usr-demo-03',
+    alias: reporterAlias('usr-demo-03'),
+    status: 'open',
+    timestamp: hoursAgo(40),
+    releaseKey: '319047',
+    releaseAttempts: 0,
+    releaseMaxAttempts: RELEASE_KEY_MAX_ATTEMPTS,
+    blindDetail: null,
     ...mockZone('track-1'),
   },
   {
     id: 'pin-4',
-    type: 'found', // Pin Verde
+    type: 'found', // Pin Verde - "Encontré esto, ¿de quién es?"
     x: 47.28, // Centro de Estacionamiento 5
     y: 12.52,
-    item: 'Credencial del TEC a nombre de...',
-    description: 'Encontrada en estacionamiento. No se revela el nombre completo.',
-    reportedBy: 'Laura G.',
-    timestamp: '2026-09-29T12:00:00',
-    unlockCode: '319047',
+    item: 'Laptop gris con una pegatina',
+    description: 'Encontrada en el Estacionamiento 5, junto a un auto azul.',
+    ownerId: MOCK_SESSION.id,
+    alias: reporterAlias(MOCK_SESSION.id),
+    status: 'open',
+    timestamp: hoursAgo(2),
+    releaseKey: null,
+    releaseAttempts: 0,
+    releaseMaxAttempts: RELEASE_KEY_MAX_ATTEMPTS,
+    blindDetail: 'Marca HP Pavilion gris, pegatina de React en la tapa, dentro una mochila azul.',
+    // La demostración empareja el reporte perdido con el encontrado de la
+    // misma sesión: así un estudiante puede recorrer la entrega completa sin
+    // un segundo navegador. En el API las dos partes son personas distintas.
+    linkedLostReportId: 'pin-1',
     ...mockZone('parking-5'),
+  },
+];
+
+// Los reclamos del arranque: uno recibido contra el reporte de la sesión y
+// uno enviado por ella. El contacto de un reclamo se libera al aprobarlo.
+export const MOCK_CLAIMS = [
+  {
+    id: 'claim-1',
+    reportId: 'pin-1',
+    reportTitle: 'Laptop HP gris con sticker de React',
+    claimantId: 'usr-demo-03',
+    claimantAlias: reporterAlias('usr-demo-03'),
+    providedBlindDetail: 'Es una HP Pavilion gris con una pegatina de React en la tapa.',
+    message: 'La dejé en el salón E3 la tarde del jueves.',
+    status: 'pending',
+    direction: 'incoming',
+    createdAt: hoursAgo(4),
+    contact: null,
+  },
+  {
+    id: 'claim-2',
+    reportId: 'pin-2',
+    reportTitle: 'Calculadora científica',
+    claimantId: MOCK_SESSION.id,
+    claimantAlias: reporterAlias(MOCK_SESSION.id),
+    providedBlindDetail: 'Marca Casio fx-991SP, gris claro, con un lapicero azul pegado con cinta.',
+    message: 'La calculadora es mía, la perdí en la cafetería.',
+    status: 'pending',
+    direction: 'outgoing',
+    createdAt: hoursAgo(1),
+    contact: null,
   },
 ];
 
@@ -91,4 +248,28 @@ export function formatTimestamp(ts) {
     minute: '2-digit',
   };
   return date.toLocaleDateString('es-MX', options);
+}
+
+/** Qué tan viejo es un reporte, en palabras y sin decir la hora exacta. */
+export function formatAge(timestamp) {
+  const then = new Date(timestamp).getTime();
+  if (!Number.isFinite(then)) return '';
+
+  const minutes = Math.floor((Date.now() - then) / 60000);
+  if (minutes < 1) return 'Hace un momento';
+  if (minutes < 60) return `Hace ${minutes} min`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Hace ${hours} h`;
+
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Hace 1 día';
+  if (days < 7) return `Hace ${days} días`;
+
+  const weeks = Math.floor(days / 7);
+  if (weeks === 1) return 'Hace 1 semana';
+  if (weeks < 5) return `Hace ${weeks} semanas`;
+
+  const months = Math.max(1, Math.floor(days / 30));
+  return months === 1 ? 'Hace 1 mes' : `Hace ${months} meses`;
 }
