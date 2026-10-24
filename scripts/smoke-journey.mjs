@@ -27,10 +27,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PNG } from 'pngjs';
 import {
   LIGHT,
+  MIN_WALL_PX,
   artworkToPercent,
   extrudePolygon,
   heightFor,
   pointInPolygon,
+  polygonArea,
+  polygonBounds,
   polygonCentroid,
   polygonPath,
   zoneAtPoint,
@@ -243,6 +246,12 @@ function scaleOf(transform) {
   return match ? Number(match[1]) : NaN;
 }
 
+/** La traslación del croquis: cuánto se movió el artwork en la pantalla. */
+function translationOf(transform) {
+  const match = transform?.match(/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/);
+  return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
+}
+
 /** La caja de la capa del artwork (las zonas y los pines): el croquis pintado. */
 async function artworkLayerBox(page) {
   return page.evaluate(() => {
@@ -251,6 +260,22 @@ async function artworkLayerBox(page) {
     const rect = layer.getBoundingClientRect();
     return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
   });
+}
+
+/**
+ * La rueda acerca el croquis hasta una escala dada, con el cursor como ancla
+ * (el artwork que está bajo el cursor se queda donde está).
+ */
+async function zoomTo(page, target, cursor) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const current = scaleOf(await artworkTransform(page));
+    if (!Number.isFinite(current) || current <= 0) return;
+    if (Math.abs(current - target) <= 0.05) return;
+    const delta = (-Math.log(target / current) / 0.0015) * 0.98;
+    await page.mouse.move(cursor.x, cursor.y);
+    await page.mouse.wheel(0, delta);
+    await sleep(200);
+  }
 }
 
 /**
@@ -328,6 +353,161 @@ async function pinSize(page) {
     const rect = pin.getBoundingClientRect();
     return { width: rect.width, height: rect.height };
   });
+}
+
+/**
+ * La escala pintada del croquis: píxeles de pantalla por unidad del artwork.
+ * El croquis publica la suya (`data-scale`), que es la misma que usa para
+ * extruir los volúmenes; sin ella se mide sobre el <svg> pintado.
+ */
+async function paintedScale(page) {
+  return page.evaluate(() => {
+    const svg = document.querySelector('[data-testid="map-artwork"]');
+    const declared = Number(svg?.dataset?.scale);
+    if (Number.isFinite(declared) && declared > 0) return declared;
+    const rect = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    return rect.width / vb.width;
+  });
+}
+
+/**
+ * La pared que se ve de un edificio: el desplazamiento entre su base y su
+ * tejado, en píxeles de pantalla. Es lo que decide si el relieve se lee como
+ * un volumen o como una mancha del plano.
+ */
+async function visibleWall(page, buildingId) {
+  const units = await page.evaluate((id) => {
+    const svg = document.querySelector('[data-testid="map-artwork"]');
+    const group = svg?.querySelector(`[data-building="${id}"]`);
+    const base = group?.querySelector('[data-shape="base"]');
+    const top = group?.querySelector('[data-shape="top"]');
+    if (!base || !top) return null;
+    const b = base.getBBox();
+    const t = top.getBBox();
+    return { dx: b.x - t.x, dy: b.y - t.y };
+  }, buildingId);
+  if (!units) return null;
+  const scale = await paintedScale(page);
+  return { dx: units.dx * scale, dy: units.dy * scale };
+}
+
+/** El contraste de dos colores, con la fórmula de WCAG. */
+function contrastRatio(first, second) {
+  const luminance = (hex) => {
+    const value = String(hex).replace('#', '').trim();
+    const channels = [0, 2, 4].map((i) => parseInt(value.slice(i, i + 2), 16) / 255);
+    const linear = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  };
+  const a = luminance(first);
+  const b = luminance(second);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+/**
+ * Un deslizamiento con el dedo: el navegador decide si la página se desplaza
+ * o el croquis se mueve, según el `touch-action` de la capa que hay bajo el
+ * dedo.
+ */
+async function swipe(page, client, from, deltaY) {
+  await client.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: from.x, y: from.y, id: 1 }],
+  });
+  for (let step = 1; step <= 10; step += 1) {
+    await client.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: from.x, y: from.y + (deltaY * step) / 10, id: 1 }],
+    });
+    await sleep(30);
+  }
+  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await sleep(500);
+}
+
+/** El punto está dentro del recuadro del croquis que se ve en la pantalla. */
+function within(point, box) {
+  return (
+    point.x > box.x + 4 &&
+    point.x < box.x + box.width - 4 &&
+    point.y > box.y + 4 &&
+    point.y < box.y + box.height - 4
+  );
+}
+
+/**
+ * El centro del tejado de un edificio: la cara que el dedo toca. El tejado es
+ * la base desplazada hacia la luz, así que el punto cae fuera de la base.
+ */
+function roofCenter(zone, scale) {
+  const shapes = zone.fragments?.length ? zone.fragments : [zone.polygon];
+  const shape = shapes.reduce(
+    (best, candidate) => (polygonArea(candidate) > polygonArea(best) ? candidate : best),
+    shapes[0],
+  );
+  const roof = extrudePolygon(shape, heightFor(zone), scale, LIGHT).top;
+  return polygonCentroid(roof);
+}
+
+/**
+ * Un punto de la BASE de un edificio: la huella que asoma debajo del volumen.
+ * Está fuera de todos los tejados, así que el toque sólo puede resolverlo la
+ * base.
+ *
+ * El punto se mide donde CAE el dedo: el navegador redondea las coordenadas
+ * de pantalla al píxel entero, así que el punto que se toca no es el que se
+ * calculó. El punto de la base es el que sobrevive a ese redondeo.
+ */
+function baseSpot(zones, scale, raster) {
+  for (const zone of zones.filter((entry) => entry.kind === 'building')) {
+    const shapes = zone.fragments?.length ? zone.fragments : [zone.polygon];
+    const shape = shapes.reduce(
+      (best, candidate) => (polygonArea(candidate) > polygonArea(best) ? candidate : best),
+      shapes[0],
+    );
+    const bounds = polygonBounds(shape);
+    for (let fx = 0.2; fx <= 0.951; fx += 0.15) {
+      for (let fy = 0.2; fy <= 0.951; fy += 0.15) {
+        const point = {
+          x: bounds.minX + (bounds.maxX - bounds.minX) * fx,
+          y: bounds.minY + (bounds.maxY - bounds.minY) * fy,
+        };
+        if (!pointInPolygon(point, shape)) continue;
+        const landed = landedPoint(raster, point);
+        if (!pointInPolygon(landed.artwork, shape)) continue;
+        const covered = zones.some((other) =>
+          (other.fragments?.length ? other.fragments : [other.polygon]).some((candidate) =>
+            pointInPolygon(
+              landed.artwork,
+              extrudePolygon(candidate, heightFor(other), scale, LIGHT).top,
+            ),
+          ),
+        );
+        if (covered) continue;
+        if (zoneAtPoint(landed.artwork, zones, { scale })?.id !== zone.id) continue;
+        return { zone, point: landed.artwork, client: landed.client };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * El punto donde cae el dedo: el navegador redondea a píxel entero, así que
+ * el punto real es el que sobrevive al redondeo.
+ */
+function landedPoint(raster, artworkPoint) {
+  const spot = screenOfArtwork(raster, {
+    x: artworkPoint.x / MAP_IMAGE.width,
+    y: artworkPoint.y / MAP_IMAGE.height,
+  });
+  const client = { x: Math.floor(spot.x), y: Math.floor(spot.y) };
+  const under = artworkUnder(raster, client);
+  return {
+    client,
+    artwork: { x: under.x * MAP_IMAGE.width, y: under.y * MAP_IMAGE.height },
+  };
 }
 
 /** Los pines del mapa (los botones con nombre accesible "Pin perdido/encontrado"). */
@@ -439,6 +619,9 @@ async function runJourney(browser, viewport) {
   });
   const page = await context.newPage();
   page.setDefaultTimeout(STEP_TIMEOUT_MS);
+  // El canal del navegador: los gestos del dedo entran por aquí, como entran
+  // de un dedo de verdad.
+  const client = await context.newCDPSession(page);
 
   page.on('console', (message) => {
     const entry = `[${vp}] [${message.type()}] ${message.text()}`;
@@ -455,6 +638,12 @@ async function runJourney(browser, viewport) {
   const take = async (step, index) => {
     const file = join(SHOTS_DIR, `${String(index).padStart(2, '0')}-${step}-${vp}.png`);
     await page.screenshot({ path: file });
+    screenshots.push(file);
+    return file;
+  };
+  const takeClip = async (step, index, clip) => {
+    const file = join(SHOTS_DIR, `${String(index).padStart(2, '0')}-${step}-${vp}.png`);
+    await page.screenshot({ path: file, clip });
     screenshots.push(file);
     return file;
   };
@@ -690,8 +879,9 @@ async function runJourney(browser, viewport) {
       };
     });
 
+    const scaleAtOne = await paintedScale(page);
     const sample = ZONE_BY_ID.get('bldg-2k');
-    const volume = extrudePolygon(sample.polygon, heightFor(sample), LIGHT);
+    const volume = extrudePolygon(sample.polygon, heightFor(sample), scaleAtOne, LIGHT);
     const expectedVolumes = ZONES.filter((zone) => zone.kind === 'building').reduce(
       (total, zone) => total + (zone.fragments?.length ?? 1),
       0,
@@ -715,8 +905,16 @@ async function runJourney(browser, viewport) {
     record(
       vp,
       'los puntos de entrega seguros se pintan con el color de la marca',
-      typeof scene?.safeFill === 'string' && scene.safeFill.includes('brand'),
-      'la cara de A con el color de la marca',
+      scene?.safeFill === 'var(--color-relief-safe-roof)' &&
+        (await page.evaluate(() =>
+          getComputedStyle(document.documentElement)
+            .getPropertyValue('--color-relief-safe-roof')
+            .trim(),
+        )) ===
+          (await page.evaluate(() =>
+            getComputedStyle(document.documentElement).getPropertyValue('--color-brand-400').trim(),
+          )),
+      'la cara de A con el ámbar de la marca',
       scene?.safeFill ?? 'no se encontró',
     );
     record(
@@ -733,6 +931,237 @@ async function runJourney(browser, viewport) {
       '2 marcas (A y AF)',
       `${scene?.safeMarks} marca(s)`,
     );
+
+    /* ── 2c-bis. El relieve se ve: la pared, los tonos y el código ───── */
+    // La pared del edificio más pequeño: si el edificio más chiquito no
+    // tiene pared, el campus entero se aplana contra el plano.
+    const smallestBuilding = ZONES.filter((zone) => zone.kind === 'building').reduce(
+      (best, zone) => (polygonArea(zone.polygon) < polygonArea(best.polygon) ? zone : best),
+    );
+    const wallAtOne = await visibleWall(page, smallestBuilding.id);
+    record(
+      vp,
+      'la pared del edificio más pequeño se ve a 1×',
+      wallAtOne !== null && wallAtOne.dy >= MIN_WALL_PX,
+      `>= ${MIN_WALL_PX}px de pared`,
+      wallAtOne
+        ? `${wallAtOne.dy.toFixed(2)}px de pared en ${smallestBuilding.id} (${scaleAtOne.toFixed(3)} px por unidad)`
+        : 'no se encontró el edificio',
+    );
+
+    // Los tonos del relieve: la cara, las dos paredes y el suelo que pisan.
+    const rasterAtOne = await rasterBox(page);
+    const mapBoxAtOne = await page.locator(t('map')).boundingBox();
+    const tones = await page.evaluate(() => {
+      const style = getComputedStyle(document.documentElement);
+      const read = (name) => style.getPropertyValue(name).trim();
+      return {
+        roof: read('--color-relief-roof'),
+        side: read('--color-relief-wall-side'),
+        down: read('--color-relief-wall-down'),
+        base: read('--color-relief-base'),
+        code: read('--color-relief-code'),
+      };
+    });
+    const ratios = {
+      roofSide: contrastRatio(tones.roof, tones.side),
+      sideDown: contrastRatio(tones.side, tones.down),
+      wallBase: contrastRatio(tones.down, tones.base),
+      codeRoof: contrastRatio(tones.code, tones.roof),
+    };
+    record(
+      vp,
+      'los tres tonos del relieve se distinguen entre sí',
+      ratios.roofSide >= 1.6 && ratios.sideDown >= 1.6,
+      'techo/pared >= 1.6:1 y pared/pared >= 1.6:1',
+      `techo ${tones.roof} / pared ${tones.side} = ${ratios.roofSide.toFixed(2)}:1, pared ${tones.side} / pared ${tones.down} = ${ratios.sideDown.toFixed(2)}:1`,
+    );
+    record(
+      vp,
+      'la pared se separa del suelo que pisa',
+      ratios.wallBase >= 1.3,
+      '>= 1.3:1',
+      `pared ${tones.down} / suelo ${tones.base} = ${ratios.wallBase.toFixed(2)}:1`,
+    );
+    record(
+      vp,
+      'el código se lee sobre el techo',
+      ratios.codeRoof >= 4.5,
+      '>= 4.5:1 (WCAG AA)',
+      `código ${tones.code} / techo ${tones.roof} = ${ratios.codeRoof.toFixed(2)}:1`,
+    );
+
+    // El código del edificio: un tamaño de pantalla, no de unidades del plano.
+    const codeLabel = await page.evaluate(() => {
+      const text = document.querySelector('[data-building="bldg-2k"] [data-shape="code"]');
+      if (!text) return null;
+      const rect = text.getBoundingClientRect();
+      return {
+        height: rect.height,
+        fontSize: parseFloat(getComputedStyle(text).fontSize),
+      };
+    });
+    record(
+      vp,
+      'el código del edificio se lee a 11 px o más',
+      codeLabel !== null && codeLabel.height >= 11,
+      '>= 11px de alto en pantalla',
+      codeLabel
+        ? `${codeLabel.height.toFixed(1)}px de alto (fuente ${codeLabel.fontSize}px)`
+        : 'no se encontró el código',
+    );
+
+    // Un primer plano del relieve: la misma esquina del campus a 1× y a 3×,
+    // para que se vea el volumen con los ojos y no sólo con las medidas.
+    // El ratón se aparta: su etiqueta tapa justo lo que se quiere ver.
+    const closeUpArtwork = { x: 0.25, y: 0.15 };
+    const closeUpAnchor = screenOfArtwork(rasterAtOne, closeUpArtwork);
+    const sizeAtOne = page.viewportSize();
+    await page.mouse.move(4, 4);
+    await sleep(250);
+    await takeClip('relief-1x', 21, {
+      x: Math.max(0, Math.min(closeUpAnchor.x - 130, sizeAtOne.width - 260)),
+      y: Math.max(0, Math.min(closeUpAnchor.y - 100, sizeAtOne.height - 200)),
+      width: 260,
+      height: 200,
+    });
+
+    /* ── 2c-ter. El dedo toca el tejado, y el tejado abre su edificio ── */
+    // Lo que se ve es lo que se toca: el tejado es la base desplazada hacia
+    // la luz, así que el punto del tejado NO está en la base de nadie.
+    let roofTap = null;
+    for (const zone of ZONES.filter((entry) => entry.kind === 'building')) {
+      const center = roofCenter(zone, scaleAtOne);
+      if (!center) continue;
+      const landed = landedPoint(rasterAtOne, center);
+      if (!within(landed.client, mapBoxAtOne)) continue;
+      // El tejado tiene que resolver SU edificio y no estar en la base de
+      // nadie: si no, el toque probaría la base y no el tejado.
+      if (zoneAtPoint(landed.artwork, ZONES, { scale: scaleAtOne })?.id !== zone.id) continue;
+      if (zoneAtPoint(landed.artwork, ZONES)) continue;
+      const hit = await page.evaluate((spot) => {
+        const element = document.elementFromPoint(spot.x, spot.y);
+        return {
+          pin: Boolean(element?.closest('button[aria-label^="Pin "]')),
+        };
+      }, landed.client);
+      if (hit.pin) continue;
+      roofTap = { zone, point: landed.client, artwork: landed.artwork };
+      break;
+    }
+    record(
+      vp,
+      'hay un tejado visible al que se puede tocar',
+      Boolean(roofTap),
+      'el tejado de un edificio, en pantalla',
+      roofTap
+        ? `${roofTap.zone.id} en (${roofTap.point.x.toFixed(0)}, ${roofTap.point.y.toFixed(0)})`
+        : 'ninguno',
+    );
+
+    if (roofTap) {
+      record(
+        vp,
+        'el punto del tejado no está en la base de ningún edificio',
+        zoneAtPoint(roofTap.artwork, ZONES, { scale: scaleAtOne })?.id === roofTap.zone.id &&
+          !zoneAtPoint(roofTap.artwork, ZONES),
+        'el tejado sólo existe si el volumen está extruido',
+        `el tejado de ${roofTap.zone.id} resuelve ${
+          zoneAtPoint(roofTap.artwork, ZONES, { scale: scaleAtOne })?.id ?? 'nada'
+        } y su base no resuelve nada`,
+      );
+
+      await page.mouse.click(roofTap.point.x, roofTap.point.y);
+      await page
+        .locator('[role="dialog"]')
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .catch(() => {});
+      const roofDialog =
+        (await page.locator('[role="dialog"]').count()) > 0
+          ? await textOf(page, '[role="dialog"]')
+          : '';
+      record(
+        vp,
+        'un toque en el tejado abre ese edificio',
+        roofDialog.includes(roofTap.zone.label),
+        `el diálogo dice "${roofTap.zone.label}"`,
+        roofDialog.slice(0, 140) ||
+          `no se abrió ningún diálogo (toque en ${roofTap.point.x.toFixed(0)}, ${roofTap.point.y.toFixed(0)})`,
+      );
+      await page.keyboard.press('Escape');
+      await page
+        .locator('[role="dialog"]')
+        .waitFor({ state: 'detached' })
+        .catch(() => {});
+    }
+
+    /* ── 2c-quater. La base también abre su edificio ─────────────────── */
+    // La huella que asoma debajo del volumen es del mismo edificio, y no de
+    // la vecina: el punto está fuera de todos los tejados.
+    const base = baseSpot(ZONES, scaleAtOne, rasterAtOne);
+    record(
+      vp,
+      'hay una base de edificio visible al que se puede tocar',
+      Boolean(base),
+      'un punto de la base fuera de todos los tejados',
+      base
+        ? `${base.zone.id} en (${base.point.x.toFixed(1)}, ${base.point.y.toFixed(1)})`
+        : 'ninguno',
+    );
+
+    if (base) {
+      await page.mouse.click(base.client.x, base.client.y);
+      await page
+        .locator('[role="dialog"]')
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .catch(() => {});
+      const baseDialog =
+        (await page.locator('[role="dialog"]').count()) > 0
+          ? await textOf(page, '[role="dialog"]')
+          : '';
+      record(
+        vp,
+        'un toque en la base abre ese edificio y no la vecina',
+        baseDialog.includes(base.zone.label),
+        `el diálogo dice "${base.zone.label}"`,
+        baseDialog.slice(0, 140) || 'no se abrió ningún diálogo',
+      );
+      await page.keyboard.press('Escape');
+      await page
+        .locator('[role="dialog"]')
+        .waitFor({ state: 'detached' })
+        .catch(() => {});
+    }
+
+    /* ── 2c-quinquies. El dedo vertical desplaza la página ───────────── */
+    // El croquis sin ampliar cede el eje vertical a la página: un
+    // deslizamiento que empieza sobre una zona desplaza la página, no el
+    // croquis.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const zoneSpot = await page.evaluate(() => {
+      const zone = document.querySelector('[data-zone-id="bldg-2k"]');
+      const rect = zone.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    });
+    const pinsBeforeSwipe = await pinCount(page);
+    await swipe(page, client, zoneSpot, -180);
+    const scrollAfterSwipe = await page.evaluate(() => window.scrollY);
+    record(
+      vp,
+      'un deslizamiento vertical sobre una zona desplaza la página',
+      scrollAfterSwipe > 20,
+      'la página se desplaza más de 20px',
+      `scrollY=${scrollAfterSwipe}`,
+    );
+    record(
+      vp,
+      'el deslizamiento sobre una zona no crea un pin',
+      (await pinCount(page)) === pinsBeforeSwipe,
+      `${pinsBeforeSwipe} pines, sin cambios`,
+      `${await pinCount(page)} pines`,
+    );
+    await page.evaluate(() => window.scrollTo(0, 0));
+
     const seedPins = await pinCount(page);
     record(
       vp,
@@ -838,9 +1267,9 @@ async function runJourney(browser, viewport) {
     );
     record(
       vp,
-      'la capa del artwork sigue guardando el gesto para el croquis',
-      touchAction.artwork === 'none',
-      'touch-action: none en la capa del artwork',
+      'la capa del artwork cede el gesto vertical a la página sin ampliar',
+      touchAction.artwork === 'pan-y',
+      'touch-action: pan-y en la capa del artwork',
       JSON.stringify(touchAction),
     );
     const zoneTouch = await page.evaluate(() => {
@@ -857,7 +1286,7 @@ async function runJourney(browser, viewport) {
     if (zoneTouch?.includes('none')) {
       finding(
         'src/components/CampusMap.jsx (capas de zonas y pines)',
-        `las zonas y los pines quedan bajo touch-action: none (cadena: ${JSON.stringify(zoneTouch)}): un deslizamiento vertical que empieza sobre una zona mueve el croquis en vez de desplazar la página. Fuera de las zonas el croquis sí deja desplazar`,
+        `las zonas y los pines quedan bajo touch-action: none (cadena: ${JSON.stringify(zoneTouch)}): un deslizamiento vertical que empieza sobre una zona se lo traga el croquis en vez de desplazar la página`,
       );
     }
 
@@ -1289,6 +1718,107 @@ async function runJourney(browser, viewport) {
       );
       await checkOverflow(page, vp, 'map-pan');
     }
+
+    /* ── 4b. El relieve ampliado: la pared no se aplana ───────────────── */
+    // A 6× la pared del edificio tiene que medir lo mismo que a 1×: si el
+    // desplazamiento se midiera en unidades del plano, el tejado se iría
+    // lejos de su huella y lo que se ve dejaría de ser lo que se toca.
+    const deepCursor = screenOfArtwork(await rasterBox(page), closeUpArtwork);
+    await zoomTo(page, 3, deepCursor);
+    const atThree = scaleOf(await artworkTransform(page));
+    const rasterAtThree = await rasterBox(page);
+    const anchorAtThree = screenOfArtwork(rasterAtThree, closeUpArtwork);
+    const size = page.viewportSize();
+    // El ratón se aparta: su etiqueta tapa justo lo que se quiere ver.
+    await page.mouse.move(4, 4);
+    await sleep(250);
+    await takeClip('relief-3x', 22, {
+      x: Math.max(0, Math.min(anchorAtThree.x - 130, size.width - 260)),
+      y: Math.max(0, Math.min(anchorAtThree.y - 100, size.height - 200)),
+      width: 260,
+      height: 200,
+    });
+    record(
+      vp,
+      'el croquis llega a 3×',
+      Math.abs(atThree - 3) <= 0.1,
+      'escala 3',
+      `escala ${atThree}`,
+    );
+
+    await zoomTo(page, 6, deepCursor);
+    const atSix = scaleOf(await artworkTransform(page));
+    const wallAtSix = await visibleWall(page, smallestBuilding.id);
+    record(
+      vp,
+      'la pared del edificio más pequeño se ve a 6×',
+      wallAtSix !== null && wallAtSix.dy >= MIN_WALL_PX,
+      `>= ${MIN_WALL_PX}px de pared`,
+      wallAtSix
+        ? `${wallAtSix.dy.toFixed(2)}px de pared (escala ${atSix})`
+        : 'no se encontró el edificio',
+    );
+    const codeAtSix = await page.evaluate(() => {
+      const text = document.querySelector('[data-building="bldg-2k"] [data-shape="code"]');
+      if (!text) return null;
+      return text.getBoundingClientRect().height;
+    });
+    record(
+      vp,
+      'el código del edificio se lee a 6× también',
+      codeAtSix !== null && codeAtSix >= 11,
+      '>= 11px de alto en pantalla',
+      codeAtSix === null ? 'no se encontró el código' : `${codeAtSix.toFixed(1)}px de alto`,
+    );
+
+    // Ampliado, el croquis guarda el gesto: un dedo lo mueve en los dos ejes.
+    const zoomedTouch = await page.evaluate(() => {
+      const layer = document.querySelector('[data-testid="map"] [role="listbox"]')?.parentElement;
+      return layer ? getComputedStyle(layer).touchAction : null;
+    });
+    record(
+      vp,
+      'ampliado, el croquis guarda el gesto',
+      zoomedTouch === 'none',
+      'touch-action: none en la capa del artwork',
+      String(zoomedTouch),
+    );
+
+    const dragSpot = await page.evaluate(() => {
+      const map = document.querySelector('[data-testid="map"]').getBoundingClientRect();
+      for (const zone of document.querySelectorAll('[data-zone-id]')) {
+        const rect = zone.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        // El dedo tiene que caer dentro del croquis (donde vive la capa que
+        // guarda el gesto) y no sobre un pin.
+        if (x < map.left + 8 || x > map.right - 8 || y < map.top + 8 || y > map.bottom - 8) {
+          continue;
+        }
+        const element = document.elementFromPoint(x, y);
+        if (!element) continue;
+        if (element.closest('button[aria-label^="Pin "]')) continue;
+        return { x, y };
+      }
+      return null;
+    });
+    const beforeDrag = translationOf(await artworkTransform(page));
+    if (dragSpot) await swipe(page, client, dragSpot, -140);
+    const afterDrag = translationOf(await artworkTransform(page));
+    record(
+      vp,
+      'un dedo mueve el croquis en vertical con el croquis ampliado',
+      beforeDrag !== null && afterDrag !== null && Math.abs(afterDrag.y - beforeDrag.y) > 5,
+      'el croquis se desplaza más de 5px en vertical',
+      `y ${beforeDrag?.y ?? 'n/d'} → ${afterDrag?.y ?? 'n/d'}`,
+    );
+    record(
+      vp,
+      'el dedo no crea un pin al mover el croquis ampliado',
+      (await pinCount(page)) === SEED_PINS,
+      `${SEED_PINS} pines`,
+      `${await pinCount(page)} pines`,
+    );
 
     /* ── 5. Recarga: el croquis vuelve a su estado inicial ───────────── */
     await page.reload({ waitUntil: 'commit' });
