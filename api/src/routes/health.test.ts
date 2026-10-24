@@ -26,7 +26,10 @@ describe('GET /health', () => {
   });
 
   it('is degraded when the database cannot be reached', async () => {
-    process.env.DATABASE_URL = 'postgresql://nobody:nobody@127.0.0.1:1/none';
+    // The probe is mocked, not the environment: the pool is built once and
+    // cached with whatever DATABASE_URL it saw first, so a test that only
+    // moves the variable depends on the order the tests run in.
+    vi.spyOn(client, 'isDatabaseReachable').mockResolvedValue(false);
     const body = await readHealth();
     expect(body.status).toBe('degraded');
     expect(body.database).toBe('down');
