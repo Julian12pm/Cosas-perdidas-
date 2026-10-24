@@ -600,7 +600,7 @@ export default function CampusMap({
       ref={wrapperRef}
       data-testid="map"
       onPointerDown={onPointerDown}
-      className="relative inline-block w-full max-w-2xl touch-pan-y select-none overflow-hidden rounded-xl border-2 border-surface-700 bg-surface-800 shadow-2xl [-webkit-tap-highlight-color:transparent]"
+      className="surface-panel relative inline-block w-full max-w-2xl touch-pan-y select-none overflow-hidden [-webkit-tap-highlight-color:transparent]"
     >
       <div className="relative" ref={stageRef}>
         <svg
@@ -746,6 +746,9 @@ export default function CampusMap({
                 // La leyenda del croquis puede encender una zona: el edificio y
                 // su nombre se pintan para que se sepa cuál es.
                 const highlighted = zone.id === highlightZoneId;
+                // La zona que se acaba de tocar también dice su nombre: en un
+                // teléfono nadie pasa el cursor por encima.
+                const named = highlighted || selectedId === zone.id;
                 return (
                   <button
                     key={zone.id}
@@ -789,8 +792,8 @@ export default function CampusMap({
                     }}
                   >
                     <span
-                      className={`absolute rounded-sm border transition-colors group-hover:border-brand-300/70 group-hover:bg-brand-400/20 group-focus:border-brand-300/70 group-focus:bg-brand-400/20 ${
-                        highlighted ? 'border-brand-300/90 bg-brand-400/30' : 'border-transparent'
+                      className={`absolute rounded-sm border transition-colors duration-fast group-hover:border-brand-300/70 group-hover:bg-brand-400/20 group-focus:border-brand-300/70 group-focus:bg-brand-400/20 ${
+                        named ? 'border-brand-300/90 bg-brand-400/30' : 'border-transparent'
                       }`}
                       style={{
                         left: `${boxes.visualLeft}%`,
@@ -800,8 +803,9 @@ export default function CampusMap({
                       }}
                     >
                       <span
-                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone)} whitespace-nowrap rounded-md bg-surface-900/95 px-1.5 py-0.5 text-[12px] font-semibold text-brand-200 shadow-lg ring-1 ring-surface-600/70 transition-opacity duration-150 ${
-                          highlighted
+                        data-testid={`zone-name-${zone.id}`}
+                        className={`pointer-events-none absolute top-1/2 -translate-y-1/2 ${anchorFor(zone)} whitespace-nowrap rounded-md bg-surface-900/95 px-1.5 py-0.5 text-[12px] font-semibold text-brand-200 shadow-panel ring-1 ring-surface-600/70 transition-opacity duration-fast ${
+                          named
                             ? 'opacity-100'
                             : 'opacity-0 group-hover:opacity-100 group-focus:opacity-100'
                         }`}

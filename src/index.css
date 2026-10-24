@@ -126,11 +126,103 @@
   --color-relief-safe-base: #1f1409;
   --color-relief-safe-code: #2a1a05;
   --color-relief-safe-mark: #fbd08a;
+
+  /**
+   * Superficies — la receta única del producto.
+   *
+   * Antes cada panel declaraba su propio relleno, borde, radio y sombra, y
+   * el resultado eran seis rellenos y cuatro opacidades para el mismo papel.
+   * Ahora el papel lo dice el token y el componente lo usa:
+   *
+   *   panel  — el contenedor de primer nivel (la tarjeta de reporte, el
+   *            diálogo, la leyenda, el marco del croquis, la tarjeta de
+   *            acceso): radio 2xl, fondo surface-800, borde surface-600/50 y
+   *            la única elevación del producto;
+   *   row    — la pieza levantada dentro de un panel (la entrada del grupo
+   *            de pines): radio xl, fondo surface-700/40, sin sombra;
+   *   inset  — el bloque callado dentro de un panel o de una fila (el dato
+   *            ciego, la clave de liberación): radio lg, fondo surface-800/70,
+   *            sin sombra;
+   *   accent — la cuarta receta, la de marca (la tarjeta de contacto, la
+   *            clave de liberación): el mismo borde de marca al 30% y el
+   *            relleno al 10%.
+   */
+  --radius-panel: 1rem;
+  --radius-row: 0.75rem;
+  --radius-inset: 0.5rem;
+  --color-panel: var(--color-surface-800);
+  --color-panel-border: color-mix(in srgb, var(--color-surface-600) 50%, transparent);
+  --color-panel-row: color-mix(in srgb, var(--color-surface-700) 40%, transparent);
+  --color-panel-inset: color-mix(in srgb, var(--color-surface-800) 70%, transparent);
+  --color-accent: color-mix(in srgb, var(--color-brand-500) 10%, transparent);
+  --color-accent-border: color-mix(in srgb, var(--color-brand-500) 30%, transparent);
+  --shadow-panel: 0 12px 24px -12px rgb(0 0 0 / 0.55), 0 4px 8px -4px rgb(0 0 0 / 0.45);
+
+  /**
+   * Movimiento — la escala.
+   *
+   * Cuatro duraciones y dos curvas, y nada más: una transición que no dice
+   * de dónde sale su tiempo dice que no hay regla detrás. `fast` es el
+   * cambio de estado de un control (150 ms, el mismo default de Tailwind),
+   * `base` el de una superficie (200 ms), `slow` el de un cambio de estado
+   * visible (300 ms) y `entrance` el de una entrada (500 ms). La curva de
+   * entrada es el bezier que ya usaba todo el producto; la de salida se
+   * declara para que el diálogo se vaya por donde entró.
+   */
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 300ms;
+  --duration-entrance: 500ms;
+  --ease-entrance: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /**
+   * El pulso del pin es un bucle, no una transición: su periodo es propio
+   * (dos segundos) porque es la señal de que ese pin está vivo.
+   */
+  --duration-pulse: 2s;
 }
 
 /**
- * El dedo no deja un halo azul en los controles: en un mapa que se arrastra
- * con el dedo, el halo del navegador delata el toque y ensucia el relieve.
+ * Los papeles de superficie, como clases.
+ *
+ * Un componente no vuelve a declarar relleno, borde, radio ni sombra: dice
+ * qué papel es. El CSS plano y las utilidades de Tailwind no se pelean por
+ * estas cuatro propiedades porque aquí nadie las usa.
+ */
+@layer components {
+  .surface-panel {
+    border-radius: var(--radius-panel);
+    border: 1px solid var(--color-panel-border);
+    background-color: var(--color-panel);
+    box-shadow: var(--shadow-panel);
+  }
+
+  .surface-row {
+    border-radius: var(--radius-row);
+    border: 1px solid var(--color-panel-border);
+    background-color: var(--color-panel-row);
+  }
+
+  .surface-inset {
+    border-radius: var(--radius-inset);
+    border: 1px solid var(--color-panel-border);
+    background-color: var(--color-panel-inset);
+  }
+
+  .surface-accent {
+    border-radius: var(--radius-inset);
+    border: 1px solid var(--color-accent-border);
+    background-color: var(--color-accent);
+  }
+}
+
+/**
+ * REGLA CRUZADA — el dedo no deja un halo azul en los controles.
+ *
+ * En un mapa que se arrastra con el dedo, el halo del navegador delata el
+ * toque y ensucia el relieve. No es una regla de un componente: es de toda la
+ * app, y por eso vive aquí y no en cada botón.
  */
 button,
 a,
@@ -139,10 +231,11 @@ a,
 }
 
 /**
- * Ningún texto del producto se pinta por debajo de 12 px. Las dos
- * utilidades que lo hacían (`text-[10px]` y `text-[11px]`) suben a 12 px:
- * están en componentes que no son de esta unidad de trabajo, así que el
- * piso se aplica desde aquí.
+ * REGLA CRUZADA — ningún texto del producto se pinta por debajo de 12 px.
+ *
+ * El suelo lo pone el producto, no cada componente: las dos utilidades que lo
+ * violaban (`text-[10px]` y `text-[11px]`) suben a 12 px desde aquí. Es un
+ * piso, no un parche: protege también a las piezas que vengan mañana.
  */
 .text-\[10px\],
 .text-\[11px\] {
@@ -226,45 +319,86 @@ a,
   }
 }
 
-@keyframes success-pop {
+@keyframes modal-out {
   0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.2);
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
   100% {
-    transform: scale(0);
+    opacity: 0;
+    transform: scale(0.94) translateY(12px);
+  }
+}
+
+@keyframes backdrop-out {
+  0% {
+    opacity: 1;
+  }
+  100% {
     opacity: 0;
   }
 }
 
+@keyframes view-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dropdown-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 @utility animate-pin-drop {
-  animation: pin-drop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: pin-drop var(--duration-entrance) var(--ease-entrance) forwards;
 }
 
 @utility animate-pin-pulse {
-  animation: pin-pulse 2s ease-in-out infinite;
+  animation: pin-pulse var(--duration-pulse) ease-in-out infinite;
 }
 
 @utility animate-pin-pulse-green {
-  animation: pin-pulse-green 2s ease-in-out infinite;
+  animation: pin-pulse-green var(--duration-pulse) ease-in-out infinite;
 }
 
 @utility animate-modal-in {
-  animation: modal-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: modal-in var(--duration-slow) var(--ease-entrance) forwards;
+}
+
+@utility animate-modal-out {
+  animation: modal-out var(--duration-base) var(--ease-exit) forwards;
 }
 
 @utility animate-backdrop-in {
-  animation: backdrop-in 0.2s ease-out forwards;
+  animation: backdrop-in var(--duration-base) ease-out forwards;
+}
+
+@utility animate-backdrop-out {
+  animation: backdrop-out var(--duration-base) var(--ease-exit) forwards;
+}
+
+@utility animate-view-in {
+  animation: view-in var(--duration-base) var(--ease-entrance) forwards;
+}
+
+@utility animate-dropdown-in {
+  animation: dropdown-in var(--duration-fast) var(--ease-entrance) forwards;
 }
 
 @utility animate-shake {
-  animation: shake 0.4s ease-in-out;
-}
-
-@utility animate-success-pop {
-  animation: success-pop 0.6s ease-in-out forwards;
+  animation: shake var(--duration-slow) ease-in-out;
 }
 
 /**

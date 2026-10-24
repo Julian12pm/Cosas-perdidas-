@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { CheckCircleIcon } from '@solar-icons/react/bold/check-circle';
 import { ClockCircleIcon } from '@solar-icons/react/bold/clock-circle';
 import { FolderIcon } from '@solar-icons/react/bold/folder';
@@ -65,6 +65,14 @@ const SAFE_POINTS = ZONES.filter((zone) => zone.safePoint);
 
 /** Dónde se guarda la sesión de demostración entre recargas. */
 const SESSION_KEY = 'objetos-perdidos:session';
+
+/**
+ * Cuánto vive el diálogo después de pedir que se cierre.
+ *
+ * El panel se va con su animación de salida (200 ms) y el componente se
+ * desmonta un poco después: si se desmontara de golpe, la salida no se vería.
+ */
+const MODAL_EXIT_MS = 240;
 
 /**
  * Lo que el API contesta, en el idioma del estudiante.
@@ -143,7 +151,7 @@ function MapPin({ report, onClick }) {
       />
       <div className="relative flex flex-col items-center">
         <div
-          className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/80 shadow-lg transition-all duration-300 group-hover:scale-125 group-hover:shadow-xl ${
+          className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-white/80 transition-transform duration-slow group-hover:scale-125 ${
             isLost ? 'bg-pin-red animate-pin-pulse' : 'bg-pin-green animate-pin-pulse-green'
           }`}
         >
@@ -155,7 +163,9 @@ function MapPin({ report, onClick }) {
           }`}
         />
       </div>
-      <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-surface-900/95 px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-xl backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100">
+      {/* El nombre del pin responde al cursor, al foco del teclado y a la
+          presión del dedo: en un teléfono no hay cursor. */}
+      <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-surface-900/95 px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow-panel backdrop-blur-sm transition-opacity duration-base group-hover:opacity-100 group-focus-visible:opacity-100 group-active:opacity-100">
         <span
           className={`inline-flex items-center gap-1 ${isLost ? 'text-red-400' : 'text-green-400'}`}
         >
@@ -198,10 +208,10 @@ function PendingMarker({ point }) {
 // escrito a mano. La tarjeta del formulario la muestra al que publica.
 
 /* ──────────────── Modal: Elegir tipo de pin ──────────────── */
-function PinTypeModal({ pending, onClose, onSelect }) {
+function PinTypeModal({ open = true, pending, onClose, onSelect }) {
   return (
     <Modal
-      open
+      open={open}
       onClose={onClose}
       title="Nuevo marcador"
       description="¿Qué deseas reportar?"
@@ -209,13 +219,13 @@ function PinTypeModal({ pending, onClose, onSelect }) {
         <button
           type="button"
           onClick={onClose}
-          className="w-full cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="w-full cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors duration-fast hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           Cancelar
         </button>
       }
     >
-      <p className="mb-3 flex items-center gap-1.5 rounded-lg bg-surface-700/40 p-2.5 text-sm text-surface-300">
+      <p className="surface-row mb-3 flex items-center gap-1.5 p-2.5 text-sm text-surface-300">
         <MapPointIcon size={16} className="shrink-0" aria-hidden="true" />
         Se marcará en:{' '}
         <span className="font-semibold text-white">{pending?.zone?.label ?? 'terreno libre'}</span>
@@ -226,9 +236,9 @@ function PinTypeModal({ pending, onClose, onSelect }) {
           type="button"
           data-testid="report-type-lost"
           onClick={() => onSelect('lost')}
-          className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-red-500/20 bg-red-500/10 p-4 transition-all duration-300 hover:border-red-500/40 hover:bg-red-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-red-500/20 bg-red-500/10 p-4 transition-colors duration-slow hover:border-red-500/40 hover:bg-red-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pin-red shadow-lg shadow-red-500/25 transition-transform group-hover:scale-110">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pin-red transition-transform duration-fast group-hover:scale-110">
             <span className="text-lg text-white">?</span>
           </div>
           <div className="text-left">
@@ -244,9 +254,9 @@ function PinTypeModal({ pending, onClose, onSelect }) {
           type="button"
           data-testid="report-type-found"
           onClick={() => onSelect('found')}
-          className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-green-500/20 bg-green-500/10 p-4 transition-all duration-300 hover:border-green-500/40 hover:bg-green-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="group flex w-full cursor-pointer items-center gap-4 rounded-xl border border-green-500/20 bg-green-500/10 p-4 transition-colors duration-slow hover:border-green-500/40 hover:bg-green-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pin-green shadow-lg shadow-green-500/25 transition-transform group-hover:scale-110">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-pin-green transition-transform duration-fast group-hover:scale-110">
             <span className="text-lg text-white">✓</span>
           </div>
           <div className="text-left">
@@ -267,12 +277,20 @@ function PinTypeModal({ pending, onClose, onSelect }) {
 /* ──────────────── Modal: Formulario del reporte ──────────────── */
 // El mismo formulario para el pin rojo y para el verde: sólo cambian el copy,
 // el dato ciego que pide el verde y el color del botón.
-function ReportModal({ kind, session, onClose, onSubmit, offline = false, error = '' }) {
+function ReportModal({
+  open = true,
+  kind,
+  session,
+  onClose,
+  onSubmit,
+  offline = false,
+  error = '',
+}) {
   const isFound = kind === 'found';
 
   return (
     <Modal
-      open
+      open={open}
       onClose={onClose}
       title={isFound ? 'Objeto encontrado' : 'Reportar objeto perdido'}
       description={
@@ -316,7 +334,7 @@ function ReportModal({ kind, session, onClose, onSubmit, offline = false, error 
 }
 
 /* ─────────── Modal: la clave de liberación, recién creada ─────────── */
-function ReleaseKeyModal({ report, onClose }) {
+function ReleaseKeyModal({ open = true, report, onClose }) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -325,13 +343,13 @@ function ReleaseKeyModal({ report, onClose }) {
 
   return (
     <Modal
-      open
+      open={open}
       onClose={onClose}
       title="Tu clave de liberación"
       description="Cópiala: es la que dicta el dueño del objeto perdido."
       testId="release-key-dialog"
     >
-      <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-4 text-center">
+      <div className="surface-accent p-4 text-center">
         <p
           data-testid="release-key-value"
           className="font-mono text-3xl tracking-[0.4em] text-white sm:text-4xl"
@@ -342,7 +360,7 @@ function ReleaseKeyModal({ report, onClose }) {
           type="button"
           data-testid="release-key-copy"
           onClick={copy}
-          className="mt-3 min-h-[44px] cursor-pointer rounded-lg border border-brand-500/40 px-3 py-2 text-xs font-semibold text-brand-200 transition-colors hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-3 min-h-[44px] cursor-pointer rounded-lg border border-brand-500/40 px-3 py-2 text-xs font-semibold text-brand-200 transition-colors duration-fast hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           {copied ? 'Clave copiada' : 'Copiar clave'}
         </button>
@@ -361,7 +379,7 @@ function ReleaseKeyModal({ report, onClose }) {
 // El reclamo se apoya en el dato ciego: el dueño del objeto lo comparó con
 // lo que guardó en privado y decide. El API exige que sea el dueño del
 // reporte perdido quien lo apruebe.
-function ClaimModal({ report, foundReports, onClose, onSubmit }) {
+function ClaimModal({ open = true, report, foundReports, onClose, onSubmit }) {
   const [blindDetail, setBlindDetail] = useState('');
   const [message, setMessage] = useState('');
   const [foundId, setFoundId] = useState(foundReports[0]?.id ?? '');
@@ -392,7 +410,7 @@ function ClaimModal({ report, foundReports, onClose, onSubmit }) {
 
   return (
     <Modal
-      open
+      open={open}
       onClose={onClose}
       title="Reclamar este objeto"
       description={`${report.item} · ${report.zoneLabel ?? 'terreno libre'}`}
@@ -469,7 +487,7 @@ function ClaimModal({ report, foundReports, onClose, onSubmit }) {
           type="submit"
           data-testid="claim-submit"
           disabled={!ready || sending}
-          className="sticky bottom-0 inline-flex min-h-[44px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-lg transition-all disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="sticky bottom-0 inline-flex min-h-[44px] w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-panel transition-[background-image] duration-base disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           {sending ? 'Enviando…' : 'Enviar el reclamo'}
         </button>
@@ -481,6 +499,7 @@ function ClaimModal({ report, foundReports, onClose, onSubmit }) {
 /* ──────────────── Modal: detalle del reporte ──────────────── */
 // El panel se exporta para poder renderizarlo aislado en las pruebas.
 export function PinInfoModal({
+  open = true,
   report,
   session,
   linked,
@@ -557,7 +576,7 @@ export function PinInfoModal({
 
   return (
     <Modal
-      open
+      open={open}
       onClose={onClose}
       title={report.item}
       description={
@@ -573,9 +592,7 @@ export function PinInfoModal({
     >
       <div className="space-y-3">
         {report.description && (
-          <p className="rounded-xl border border-surface-600/30 bg-surface-700/30 p-3 text-sm text-surface-300">
-            {report.description}
-          </p>
+          <p className="surface-inset p-3 text-sm text-surface-300">{report.description}</p>
         )}
 
         <div className="flex flex-wrap justify-between gap-2 text-xs text-text-muted">
@@ -590,7 +607,7 @@ export function PinInfoModal({
         </div>
 
         {isMine && !isLost && report.blindDetail && (
-          <div className="rounded-xl border border-surface-600/50 bg-surface-700/40 p-3">
+          <div className="surface-inset p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-surface-300">
               Dato ciego (sólo tú lo ves)
             </p>
@@ -607,14 +624,14 @@ export function PinInfoModal({
             type="button"
             data-testid="claim-open"
             onClick={() => onClaim(report)}
-            className="min-h-[44px] w-full cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-2.5 text-sm font-semibold text-surface-900 transition-all hover:from-brand-400 hover:to-brand-500 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="min-h-[44px] w-full cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-2.5 text-sm font-semibold text-surface-900 transition-[background-image] duration-base hover:from-brand-400 hover:to-brand-500 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
           >
             Es mío: quiero reclamarlo
           </button>
         )}
 
         {apiMode && isMine && !isLost && (
-          <div className="rounded-xl border border-surface-600/50 bg-surface-700/40 p-3">
+          <div className="surface-row p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-surface-300">
               Punto seguro
             </p>
@@ -645,7 +662,7 @@ export function PinInfoModal({
                 data-testid="deposit-submit"
                 onClick={deposit}
                 disabled={!safePoint}
-                className="min-h-[44px] cursor-pointer rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2 text-sm font-semibold text-brand-200 transition-colors hover:bg-brand-500/20 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="min-h-[44px] cursor-pointer rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2 text-sm font-semibold text-brand-200 transition-colors duration-fast hover:bg-brand-500/20 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 Dejarlo en resguardo
               </button>
@@ -659,7 +676,7 @@ export function PinInfoModal({
         )}
 
         {isMine && isLost && report.releaseKey && (
-          <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-3">
+          <div className="surface-accent p-3">
             <div className="flex items-center gap-2">
               <LockKeyholeIcon size={16} className="shrink-0" aria-hidden="true" />
               <h3 className="text-sm font-semibold text-white">Tu clave de liberación</h3>
@@ -675,7 +692,7 @@ export function PinInfoModal({
               <button
                 type="button"
                 onClick={copy}
-                className="min-h-[44px] cursor-pointer rounded-lg border border-surface-600/60 px-3 py-2 text-xs text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="min-h-[44px] cursor-pointer rounded-lg border border-surface-600/60 px-3 py-2 text-xs text-surface-200 transition-colors duration-fast hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 {copied ? 'Clave copiada' : 'Copiar clave'}
               </button>
@@ -690,7 +707,7 @@ export function PinInfoModal({
         )}
 
         {isMine && !isLost && linked && (
-          <div className="rounded-xl border border-brand-500/30 bg-brand-500/10 p-3">
+          <div className="surface-accent p-3">
             <div className="flex items-center gap-2">
               <LockKeyholeIcon size={16} className="shrink-0" aria-hidden="true" />
               <h3 className="text-sm font-semibold text-white">Confirmar la entrega</h3>
@@ -706,7 +723,7 @@ export function PinInfoModal({
                   <button
                     type="button"
                     onClick={() => onResolve(report.id)}
-                    className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-all hover:from-green-500 hover:to-green-600 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                    className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-[background-image] duration-base hover:from-green-500 hover:to-green-600 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                   >
                     <CheckCircleIcon size={16} className="shrink-0" aria-hidden="true" />
                     Sí, la entrega se realizó
@@ -714,7 +731,7 @@ export function PinInfoModal({
                   <button
                     type="button"
                     onClick={() => setConfirming(false)}
-                    className="min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                    className="min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors duration-fast hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                   >
                     Cancelar
                   </button>
@@ -739,7 +756,7 @@ export function PinInfoModal({
                 </p>
                 {/* La acción se queda pegada al borde inferior del diálogo: con el
                     teclado abierto el botón no puede quedar debajo del pliegue. */}
-                <div className="sticky bottom-0 z-10 mt-2 flex gap-2 bg-surface-800 py-2">
+                <div className="sticky bottom-0 z-10 mt-2 flex gap-2 bg-panel py-2">
                   <input
                     id={codeId}
                     data-testid="release-key-input"
@@ -759,7 +776,7 @@ export function PinInfoModal({
                     }}
                     placeholder={'• '.repeat(RELEASE_KEY_LENGTH).trim()}
                     aria-describedby={error ? `${codeId}-error` : undefined}
-                    className={`min-h-[44px] w-full rounded-xl border bg-surface-700/50 px-4 py-3 text-center font-mono text-xl tracking-[0.5em] text-white focus:outline-none focus:ring-2 focus:ring-focus transition-all ${
+                    className={`min-h-[44px] w-full rounded-xl border bg-surface-700/50 px-4 py-3 text-center font-mono text-xl tracking-[0.5em] text-white focus:outline-none focus:ring-2 focus:ring-focus transition-colors duration-base ${
                       error
                         ? 'animate-shake border-red-500 bg-red-500/10'
                         : 'border-input-border focus:border-brand-500'
@@ -782,7 +799,7 @@ export function PinInfoModal({
         )}
 
         {isMine && !isLost && !linked && (
-          <p className="rounded-xl border border-surface-600/40 bg-surface-700/30 p-3 text-xs leading-relaxed text-text-muted">
+          <p className="surface-inset p-3 text-xs leading-relaxed text-text-muted">
             Cuando el dueño apruebe tu reclamo te dictará la clave para confirmar la entrega.
           </p>
         )}
@@ -797,7 +814,7 @@ function NavButton({ active, children, ...rest }) {
     <button
       type="button"
       aria-current={active ? 'page' : undefined}
-      className={`inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none sm:text-sm ${
+      className={`inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors duration-fast focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none sm:text-sm ${
         active
           ? 'bg-brand-500/20 text-brand-200'
           : 'text-surface-300 hover:bg-surface-700/60 hover:text-white'
@@ -873,6 +890,10 @@ export default function App() {
   const [view, setView] = useState('map');
   const [modal, setModal] = useState(null);
   const [pending, setPending] = useState(null);
+  // El diálogo se va antes de desmontarse: `closing` lo mantiene vivo
+  // mientras dura su salida.
+  const [closing, setClosing] = useState(false);
+  const exitToken = useRef(0);
   // El enlace entre el hallazgo y el objeto perdido: lo guarda la app porque
   // el API todavía no lo expone.
   const [links, setLinks] = useState({});
@@ -984,45 +1005,87 @@ export default function App() {
     setPending(null);
   }, []);
 
-  const closeModal = useCallback(() => {
-    setModal(null);
-    setPending(null);
+  /**
+   * El diálogo se va antes de desmontarse.
+   *
+   * El panel sigue montado mientras dura su salida, así que el cierre no es
+   * un corte: es una animación. El token cancela una salida que ya no
+   * importa (el diálogo se cambió por otro en medio del camino).
+   */
+  const closeWithExit = useCallback((close) => {
+    const token = exitToken.current + 1;
+    exitToken.current = token;
+    setClosing(true);
+    setTimeout(() => {
+      if (exitToken.current !== token) return;
+      setClosing(false);
+      close();
+    }, MODAL_EXIT_MS);
   }, []);
+
+  /** Una salida que ya no importa: el diálogo sigue como estaba. */
+  const cancelExit = useCallback(() => {
+    exitToken.current += 1;
+    setClosing(false);
+  }, []);
+
+  const closeModal = useCallback(() => {
+    closeWithExit(() => {
+      setModal(null);
+      setPending(null);
+    });
+  }, [closeWithExit]);
 
   /** Una zona del croquis: se marca su centro y se pregunta qué se reportará. */
-  const handleSelectZone = useCallback((zone) => {
-    if (!zone) {
-      setPending(null);
-      setModal(null);
-      return;
-    }
+  const handleSelectZone = useCallback(
+    (zone) => {
+      if (!zone) {
+        setPending(null);
+        setModal(null);
+        return;
+      }
 
-    const centroid = polygonCentroid(zone.polygon);
-    if (!centroid) return;
+      const centroid = polygonCentroid(zone.polygon);
+      if (!centroid) return;
 
-    const percent = artworkToPercent(centroid, MAP_IMAGE);
-    setPending({
-      x: parseFloat(percent.x.toFixed(2)),
-      y: parseFloat(percent.y.toFixed(2)),
-      zone: { id: zone.id, label: zone.label },
-    });
-    setModal({ kind: 'choose' });
-  }, []);
+      cancelExit();
+      const percent = artworkToPercent(centroid, MAP_IMAGE);
+      setPending({
+        x: parseFloat(percent.x.toFixed(2)),
+        y: parseFloat(percent.y.toFixed(2)),
+        zone: { id: zone.id, label: zone.label },
+      });
+      setModal({ kind: 'choose' });
+    },
+    [cancelExit],
+  );
 
   /** Un toque en terreno libre: se marca el punto y se pregunta qué se reportará. */
-  const handlePick = useCallback((point) => {
-    const zone = zoneAtPoint(point, ZONES);
-    const percent = artworkToPercent(point, MAP_IMAGE);
+  const handlePick = useCallback(
+    (point) => {
+      const zone = zoneAtPoint(point, ZONES);
+      const percent = artworkToPercent(point, MAP_IMAGE);
 
-    setPending({
-      x: parseFloat(percent.x.toFixed(2)),
-      y: parseFloat(percent.y.toFixed(2)),
-      zone: zone ? { id: zone.id, label: zone.label } : null,
-    });
-    setModal({ kind: 'choose' });
-  }, []);
+      cancelExit();
+      setPending({
+        x: parseFloat(percent.x.toFixed(2)),
+        y: parseFloat(percent.y.toFixed(2)),
+        zone: zone ? { id: zone.id, label: zone.label } : null,
+      });
+      setModal({ kind: 'choose' });
+    },
+    [cancelExit],
+  );
 
-  const handleTypeSelect = useCallback((type) => setModal({ kind: type }), []);
+  const handleTypeSelect = useCallback(
+    (type) => {
+      // El diálogo del tipo se sustituye por el formulario: la salida del
+      // primero no tiene nada que enseñar.
+      cancelExit();
+      setModal({ kind: type });
+    },
+    [cancelExit],
+  );
 
   /**
    * El fallo del API dice qué hacer: la sesión venció, no hay red, o el
@@ -1385,7 +1448,9 @@ export default function App() {
   const mapGroups = useMemo(() => clusterByZone(mapReports), [mapReports]);
 
   const openCluster = useCallback((zoneId) => setClusterZoneId(zoneId), []);
-  const closeCluster = useCallback(() => setClusterZoneId(null), []);
+  const closeCluster = useCallback(() => {
+    closeWithExit(() => setClusterZoneId(null));
+  }, [closeWithExit]);
 
   const clusterGroup = useMemo(
     () =>
@@ -1397,10 +1462,13 @@ export default function App() {
   // paso, para que no queden dos diálogos encima.
   const openReportFromCluster = useCallback(
     (report) => {
+      // El grupo se sustituye por el reporte: aquí no hay salida que ver,
+      // hay un diálogo que ocupa el lugar del otro.
+      cancelExit();
       setClusterZoneId(null);
       handlePinClick(report);
     },
-    [handlePinClick],
+    [handlePinClick, cancelExit],
   );
 
   const myReports = useMemo(
@@ -1489,14 +1557,13 @@ export default function App() {
               data-testid="header-lost-count"
               className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-xs text-red-300 sm:px-3 sm:text-sm"
             >
-              <div className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> {lostCount} perdidos
+              <div className="h-2 w-2 rounded-full bg-red-500" /> {lostCount} perdidos
             </div>
             <div
               data-testid="header-found-count"
               className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-green-500/20 bg-green-500/10 px-2.5 py-1 text-xs text-green-300 sm:px-3 sm:text-sm"
             >
-              <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" /> {foundCount}{' '}
-              encontrados
+              <div className="h-2 w-2 rounded-full bg-green-500" /> {foundCount} encontrados
             </div>
           </div>
         </div>
@@ -1526,7 +1593,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleSignOut}
-              className="inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-xl border border-surface-600/60 px-3 py-2 text-xs font-semibold text-surface-300 transition-colors hover:bg-surface-700/60 hover:text-white focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-xl border border-surface-600/60 px-3 py-2 text-xs font-semibold text-surface-300 transition-colors duration-fast hover:bg-surface-700/60 hover:text-white focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
             >
               <LogoutIcon size={16} className="shrink-0" aria-hidden="true" />
               Salir
@@ -1538,95 +1605,111 @@ export default function App() {
       </header>
 
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center gap-4 p-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))] md:p-6 md:pb-6">
-        {view === 'map' && (
-          <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start">
-            {/* El croquis y su buscador: la columna que el estudiante mira primero. */}
-            <div className="flex w-full min-w-0 flex-col items-center gap-4 lg:flex-1">
-              <div className="w-full max-w-2xl">
-                <ZonePicker zones={ZONES} onSelect={handleSelectZone} state={screenState} />
+        {/* La vista entra fundida. El `key` la remonta al cambiar, y con ella
+            vuelve a empezar la animación: la vista nueva aparece y la vieja
+            se desmonta de inmediato (un cruce real montaría el croquis dos
+            veces). */}
+        <div key={view} className="animate-view-in flex w-full flex-col items-center">
+          {view === 'map' && (
+            <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start">
+              {/* El croquis y su buscador: la columna que el estudiante mira primero. */}
+              <div className="flex w-full min-w-0 flex-col items-center gap-4 lg:flex-1">
+                <div className="w-full max-w-2xl">
+                  <ZonePicker zones={ZONES} onSelect={handleSelectZone} state={screenState} />
+                </div>
+
+                {screenState === 'error' ? (
+                  <div className="w-full max-w-2xl">
+                    <ErrorState
+                      title="No pudimos cargar el campus"
+                      description="Revisa tu conexión e inténtalo de nuevo."
+                      onRetry={loadCampus}
+                    />
+                  </div>
+                ) : screenState === 'loading' ? (
+                  <div
+                    aria-hidden="true"
+                    className="aspect-[700/647] surface-panel w-full max-w-2xl"
+                  />
+                ) : (
+                  <CampusMap
+                    zones={ZONES}
+                    image={MAP_IMAGE}
+                    onSelectZone={handleSelectZone}
+                    onPick={handlePick}
+                    highlightZoneId={highlightZoneId}
+                    empty={mapReports.length === 0}
+                    offline={!online}
+                  >
+                    {mapGroups.map((group) =>
+                      group.reports.length === 1 ? (
+                        <MapPin
+                          key={group.reports[0].id}
+                          report={group.reports[0]}
+                          onClick={handlePinClick}
+                        />
+                      ) : (
+                        <PinCluster key={group.zoneId} group={group} onOpen={openCluster} />
+                      ),
+                    )}
+
+                    {pending && <PendingMarker point={pending} />}
+                  </CampusMap>
+                )}
+
+                <p className="max-w-2xl text-center text-xs leading-relaxed text-text-muted">
+                  Toca el croquis para marcar un objeto perdido o encontrado. Con el teclado: Tab
+                  hasta el plano y usa las flechas para recorrer las zonas, Enter para elegir una.
+                </p>
               </div>
 
-              {screenState === 'error' ? (
-                <div className="w-full max-w-2xl">
-                  <ErrorState
-                    title="No pudimos cargar el campus"
-                    description="Revisa tu conexión e inténtalo de nuevo."
-                    onRetry={loadCampus}
-                  />
-                </div>
-              ) : screenState === 'loading' ? (
-                <div
-                  aria-hidden="true"
-                  className="aspect-[700/647] w-full max-w-2xl rounded-xl border-2 border-surface-700 bg-surface-800"
-                />
-              ) : (
-                <CampusMap
+              {/* Los nombres del campus: la tabla que el plano oficial ya no trae. */}
+              <div className="w-full lg:w-96 lg:shrink-0">
+                <ZoneLegend
                   zones={ZONES}
-                  image={MAP_IMAGE}
-                  onSelectZone={handleSelectZone}
-                  onPick={handlePick}
-                  highlightZoneId={highlightZoneId}
-                  empty={mapReports.length === 0}
-                  offline={!online}
-                >
-                  {mapGroups.map((group) =>
-                    group.reports.length === 1 ? (
-                      <MapPin
-                        key={group.reports[0].id}
-                        report={group.reports[0]}
-                        onClick={handlePinClick}
-                      />
-                    ) : (
-                      <PinCluster key={group.zoneId} group={group} onOpen={openCluster} />
-                    ),
-                  )}
-
-                  {pending && <PendingMarker point={pending} />}
-                </CampusMap>
-              )}
-
-              <p className="max-w-2xl text-center text-xs leading-relaxed text-text-muted">
-                Toca el croquis para marcar un objeto perdido o encontrado. Con el teclado: Tab
-                hasta el plano y usa las flechas para recorrer las zonas, Enter para elegir una.
-              </p>
+                  onSelect={handleSelectZone}
+                  onHover={setHighlightZoneId}
+                />
+              </div>
             </div>
+          )}
 
-            {/* Los nombres del campus: la tabla que el plano oficial ya no trae. */}
-            <div className="w-full lg:w-96 lg:shrink-0">
-              <ZoneLegend zones={ZONES} onSelect={handleSelectZone} onHover={setHighlightZoneId} />
-            </div>
-          </div>
-        )}
+          {view === 'reports' && (
+            <MyReports
+              reports={myReports}
+              claims={claims}
+              onOpenReport={handlePinClick}
+              state={screenState}
+              onRetry={loadCampus}
+              apiMode={isApiConfigured()}
+            />
+          )}
 
-        {view === 'reports' && (
-          <MyReports
-            reports={myReports}
-            claims={claims}
-            onOpenReport={handlePinClick}
-            state={screenState}
-            onRetry={loadCampus}
-            apiMode={isApiConfigured()}
-          />
-        )}
-
-        {view === 'inbox' && (
-          <ClaimInbox
-            claims={claims}
-            onApprove={handleApproveClaim}
-            onReject={handleRejectClaim}
-            state={screenState}
-            onRetry={loadCampus}
-            offline={!online}
-            error={actionError}
-          />
-        )}
+          {view === 'inbox' && (
+            <ClaimInbox
+              claims={claims}
+              onApprove={handleApproveClaim}
+              onReject={handleRejectClaim}
+              state={screenState}
+              onRetry={loadCampus}
+              offline={!online}
+              error={actionError}
+            />
+          )}
+        </div>
       </main>
 
       {modal?.kind === 'choose' && (
-        <PinTypeModal pending={pending} onClose={closeModal} onSelect={handleTypeSelect} />
+        <PinTypeModal
+          open={!closing}
+          pending={pending}
+          onClose={closeModal}
+          onSelect={handleTypeSelect}
+        />
       )}
       {modal?.kind === 'lost' && (
         <ReportModal
+          open={!closing}
           kind="lost"
           session={session}
           onClose={closeModal}
@@ -1637,6 +1720,7 @@ export default function App() {
       )}
       {modal?.kind === 'found' && (
         <ReportModal
+          open={!closing}
           kind="found"
           session={session}
           onClose={closeModal}
@@ -1647,6 +1731,7 @@ export default function App() {
       )}
       {modal?.kind === 'claim' && (
         <ClaimModal
+          open={!closing}
           report={modal.report}
           foundReports={myFoundReports}
           onClose={closeModal}
@@ -1654,10 +1739,11 @@ export default function App() {
         />
       )}
       {modal?.kind === 'release-key' && (
-        <ReleaseKeyModal report={modal.report} onClose={closeModal} />
+        <ReleaseKeyModal open={!closing} report={modal.report} onClose={closeModal} />
       )}
       {clusterGroup && (
         <PinClusterList
+          open={!closing}
           group={clusterGroup}
           onClose={closeCluster}
           onOpenReport={openReportFromCluster}
@@ -1665,6 +1751,7 @@ export default function App() {
       )}
       {infoReport && (
         <PinInfoModal
+          open={!closing}
           report={infoReport}
           session={session}
           linked={linkedReport}

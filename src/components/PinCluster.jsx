@@ -106,7 +106,7 @@ export default function PinCluster({ group, onOpen }) {
       />
       <div className="relative flex flex-col items-center">
         <div
-          className="flex h-9 w-9 items-center justify-center rounded-full shadow-lg"
+          className="flex h-9 w-9 items-center justify-center rounded-full shadow-panel"
           style={{
             background: `conic-gradient(var(--color-pin-red) 0deg ${share}deg, var(--color-pin-green) ${share}deg 360deg)`,
           }}
@@ -125,12 +125,12 @@ export default function PinCluster({ group, onOpen }) {
 }
 
 /* ──────────────────────────── La lista del grupo ──────────────────────────── */
-export function PinClusterList({ group, onClose, onOpenReport }) {
+export function PinClusterList({ open = true, group, onClose, onOpenReport }) {
   const count = group.reports.length;
 
   return (
     <Modal
-      open
+      open={open}
       onClose={onClose}
       title={clusterName(count, group.label)}
       description="Elige el reporte que quieras abrir."
@@ -145,7 +145,7 @@ export function PinClusterList({ group, onClose, onOpenReport }) {
                 type="button"
                 data-testid={`pin-cluster-entry-${report.id}`}
                 onClick={() => onOpenReport(report)}
-                className="flex min-h-[44px] w-full cursor-pointer items-center gap-3 rounded-xl border border-surface-600/50 bg-surface-700/40 px-3 py-2 text-left transition-colors hover:bg-surface-700/80 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="surface-row flex min-h-[44px] w-full cursor-pointer items-center gap-3 px-3 py-2 text-left transition-colors duration-fast hover:bg-surface-700/80 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 <span
                   className={`inline-flex shrink-0 items-center gap-1 text-xs font-semibold ${

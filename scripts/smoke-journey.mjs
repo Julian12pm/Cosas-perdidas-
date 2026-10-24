@@ -1088,6 +1088,31 @@ async function runJourney(browser, viewport) {
         roofDialog.slice(0, 140) ||
           `no se abrió ningún diálogo (toque en ${roofTap.point.x.toFixed(0)}, ${roofTap.point.y.toFixed(0)})`,
       );
+
+      // El edificio que se acaba de tocar dice su nombre en el croquis: en
+      // un teléfono nadie pasa el cursor por encima del plano.
+      await page
+        .waitForFunction(
+          (id) => {
+            const chip = document.querySelector(`[data-testid="zone-name-${id}"]`);
+            return chip ? Number(getComputedStyle(chip).opacity) > 0.9 : false;
+          },
+          roofTap.zone.id,
+          { timeout: 3000 },
+        )
+        .catch(() => {});
+      const roofChip = await page.evaluate((id) => {
+        const chip = document.querySelector(`[data-testid="zone-name-${id}"]`);
+        return chip ? getComputedStyle(chip).opacity : '';
+      }, roofTap.zone.id);
+      record(
+        vp,
+        'al tocar una zona, el croquis dice su nombre',
+        Number(roofChip) > 0.9,
+        `el nombre de "${roofTap.zone.label}" a la vista`,
+        `opacidad ${roofChip || 'nula'}`,
+      );
+
       await page.keyboard.press('Escape');
       await page
         .locator('[role="dialog"]')
@@ -2812,6 +2837,73 @@ async function runJourney(browser, viewport) {
       await page.keyboard.press('Escape');
       await page.locator(t('pin-cluster-dialog')).waitFor({ state: 'detached' });
     }
+
+    /* ── 23. El diálogo se va antes de desmontarse ──────────────────── */
+    // La salida se alarga a propósito: si el panel se borrara de golpe, el
+    // diálogo desaparecería en el mismo cuadro y esta comprobación no
+    // tendría nada que mirar.
+    await page.addStyleTag({
+      content: '.animate-modal-out { animation-duration: 2s !important; }',
+    });
+    await page.locator('button[data-testid^="pin-cluster-marker-"]').first().click();
+    await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
+    const entrance = await page.evaluate(() => {
+      const dialog = document.querySelector('[role="dialog"]');
+      return dialog ? getComputedStyle(dialog).animationName : '';
+    });
+    record(
+      vp,
+      'el diálogo entra con su animación',
+      entrance.includes('modal-in'),
+      'modal-in',
+      entrance || 'sin animación',
+    );
+    await page.keyboard.press('Escape');
+    await sleep(150);
+    const leaving = await page.evaluate(() => {
+      const dialog = document.querySelector('[role="dialog"]');
+      if (!dialog) return 'desmontado';
+      const style = getComputedStyle(dialog);
+      return `${style.animationName} (${style.animationDuration})`;
+    });
+    record(
+      vp,
+      'el diálogo se va antes de desmontarse',
+      leaving.includes('modal-out'),
+      'modal-out',
+      leaving,
+    );
+    await page.locator('[role="dialog"]').waitFor({ state: 'detached' });
+    record(
+      vp,
+      'el diálogo se desmonta cuando termina la salida',
+      true,
+      'el diálogo desapareció',
+      'desapareció',
+    );
+
+    /* ── 24. Con movimiento reducido el diálogo se abre y se cierra ──── */
+    // El bloque de prefers-reduced-motion neutraliza todas las animaciones:
+    // el diálogo entra y sale igual, pero sin duración.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.locator('button[data-testid^="pin-cluster-marker-"]').first().click();
+    await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
+    const reducedOpened = (await page.locator('[role="dialog"]').count()) === 1;
+    const reducedDuration = await page.evaluate(() => {
+      const dialog = document.querySelector('[role="dialog"]');
+      return dialog ? getComputedStyle(dialog).animationDuration : '';
+    });
+    await take('reduced-motion', 24);
+    await page.keyboard.press('Escape');
+    await page.locator('[role="dialog"]').waitFor({ state: 'detached' });
+    record(
+      vp,
+      'con movimiento reducido el diálogo se abre y se cierra',
+      reducedOpened,
+      '1 diálogo abierto y cerrado',
+      reducedOpened ? `se abrió y se cerró (${reducedDuration})` : 'no se abrió',
+    );
+    await page.emulateMedia({ reducedMotion: null });
 
     return { screenshots };
   } finally {

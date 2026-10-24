@@ -78,7 +78,7 @@ export default function LoginScreen({ onAuthenticated, expired = false, offline 
 
   return (
     <main className="flex flex-1 items-center justify-center bg-surface-900 p-4 text-white font-sans">
-      <div className="w-full max-w-md rounded-2xl border border-surface-600/50 bg-surface-800 p-5 shadow-2xl sm:p-6">
+      <div className="surface-panel w-full max-w-md p-5 sm:p-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-500">
             <MapPointIcon size={24} aria-hidden="true" />
@@ -135,14 +135,14 @@ export default function LoginScreen({ onAuthenticated, expired = false, offline 
             type="submit"
             data-testid="login-submit"
             disabled={status === 'sending' || offline}
-            className="min-h-[44px] w-full cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-lg transition-all hover:from-brand-400 hover:to-brand-500 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="min-h-[44px] w-full cursor-pointer rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-3 font-semibold text-surface-900 shadow-panel transition-[background-image] duration-base hover:from-brand-400 hover:to-brand-500 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
           >
             {status === 'sending' ? 'Enviando…' : 'Recibir enlace'}
           </button>
         </form>
 
         {demoMode && (
-          <div className="mt-5 rounded-xl border border-surface-600/50 bg-surface-700/30 p-3">
+          <div className="surface-inset mt-5 p-3">
             <p className="text-xs leading-relaxed text-surface-300">
               La API no está configurada (<code className="text-brand-300">VITE_API_URL</code>), así
               que el acceso es de demostración y los datos son los de arranque.
@@ -152,7 +152,7 @@ export default function LoginScreen({ onAuthenticated, expired = false, offline 
                 type="button"
                 data-testid="login-demo"
                 onClick={enterDemo}
-                className="mt-3 min-h-[44px] w-full cursor-pointer rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm font-semibold text-brand-200 transition-colors hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="mt-3 min-h-[44px] w-full cursor-pointer rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-2.5 text-sm font-semibold text-brand-200 transition-colors duration-fast hover:bg-brand-500/20 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 Entrar con la sesión de demostración
               </button>

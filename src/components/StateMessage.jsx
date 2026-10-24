@@ -10,10 +10,10 @@ import { DangerTriangleIcon } from '@solar-icons/react/bold/danger-triangle';
 import { LoaderIcon } from '@solar-icons/react/bold/loader';
 
 /** El panel de una pantalla que no tiene nada que mostrar. */
-const PANEL = 'rounded-2xl border border-surface-600/50 bg-surface-800 p-5 sm:p-6';
+const PANEL = 'surface-panel p-5 sm:p-6';
 
 /** El panel de un estado que vive dentro de otra pieza: el mapa, el buscador. */
-const PANEL_COMPACT = 'rounded-xl border border-surface-600/50 bg-surface-800/95 p-3';
+const PANEL_COMPACT = 'surface-panel p-3';
 
 /** El cuerpo del panel: icono, título, texto y, cuando hace falta, una acción. */
 function StateBody({ icon, title, description, action, tone = 'muted' }) {
@@ -34,7 +34,7 @@ function StateBody({ icon, title, description, action, tone = 'muted' }) {
         <button
           type="button"
           onClick={action.onClick}
-          className="mt-1 min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-1 min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors duration-fast hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           {action.label}
         </button>

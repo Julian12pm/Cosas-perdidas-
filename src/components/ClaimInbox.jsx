@@ -21,10 +21,7 @@ const STATUS_LABELS = {
 /** Una fila de la bandeja, con el dato ciego que ofrece el reclamante. */
 function ClaimRow({ claim, actions, single = false }) {
   return (
-    <li
-      data-testid={`claim-${claim.id}`}
-      className="rounded-xl border border-surface-600/50 bg-surface-700/30 p-3"
-    >
+    <li data-testid={`claim-${claim.id}`} className="surface-panel p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-semibold text-white">{claim.reportTitle}</p>
@@ -38,7 +35,7 @@ function ClaimRow({ claim, actions, single = false }) {
       </div>
 
       {claim.providedBlindDetail && (
-        <p className="mt-2 rounded-lg bg-surface-800/70 p-2 text-sm text-surface-200">
+        <p className="surface-inset mt-2 p-2 text-sm text-surface-200">
           <span className="text-xs uppercase tracking-wide text-text-muted">Dato ciego: </span>
           {claim.providedBlindDetail}
         </p>
@@ -139,7 +136,7 @@ export default function ClaimInbox({
               Recibidos ({incoming.length})
             </h3>
             {incoming.length === 0 ? (
-              <p className="rounded-xl border border-surface-600/50 bg-surface-800 p-3 text-sm text-text-muted">
+              <p className="surface-inset p-3 text-sm text-text-muted">
                 Nadie ha reclamado tus reportes.
               </p>
             ) : (
@@ -157,7 +154,7 @@ export default function ClaimInbox({
                             data-testid={`claim-approve-${claim.id}`}
                             disabled={offline || busy}
                             onClick={() => setDecision({ claim, kind: 'approve' })}
-                            className="min-h-[44px] cursor-pointer rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-all hover:from-green-500 hover:to-green-600 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                            className="min-h-[44px] cursor-pointer rounded-xl bg-gradient-to-r from-green-600 to-green-700 px-4 py-2 text-sm font-semibold text-white transition-[background-image] duration-base hover:from-green-500 hover:to-green-600 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                           >
                             <span data-testid={onlyPending ? 'claim-approve' : undefined}>
                               Aprobar
@@ -168,7 +165,7 @@ export default function ClaimInbox({
                             data-testid={`claim-reject-${claim.id}`}
                             disabled={offline || busy}
                             onClick={() => setDecision({ claim, kind: 'reject' })}
-                            className="min-h-[44px] cursor-pointer rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                            className="min-h-[44px] cursor-pointer rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 transition-colors duration-fast hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                           >
                             <span data-testid={onlyPending ? 'claim-reject' : undefined}>
                               Rechazar
@@ -188,7 +185,7 @@ export default function ClaimInbox({
               Enviados ({outgoing.length})
             </h3>
             {outgoing.length === 0 ? (
-              <p className="rounded-xl border border-surface-600/50 bg-surface-800 p-3 text-sm text-text-muted">
+              <p className="surface-inset p-3 text-sm text-text-muted">
                 No has reclamado ningún reporte.
               </p>
             ) : (
@@ -216,7 +213,7 @@ export default function ClaimInbox({
             <button
               type="button"
               onClick={() => setDecision(null)}
-              className="min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="min-h-[44px] cursor-pointer rounded-xl border border-surface-600/60 px-4 py-2 text-sm font-semibold text-surface-200 transition-colors duration-fast hover:bg-surface-700/60 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
             >
               Cancelar
             </button>
@@ -224,7 +221,7 @@ export default function ClaimInbox({
               type="button"
               onClick={confirm}
               disabled={busy}
-              className={`min-h-[44px] cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold text-white transition-all focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`min-h-[44px] cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold text-white transition-[background-image] duration-base focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40 ${
                 decision?.kind === 'reject'
                   ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600'
                   : 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-500 hover:to-green-600'
