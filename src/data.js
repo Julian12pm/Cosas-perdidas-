@@ -1,4 +1,6 @@
-import { ZONE_BY_ID } from './map/zones.js';
+import { MAP_IMAGE, ZONE_BY_ID } from './map/zones.js';
+import { artworkToPercent, polygonCentroid } from './map/geometry.js';
+import { getContactCard, getReport, isApiConfigured, listInbox, listReports } from './api.js';
 
 // Longitud de la clave de liberación: el dueño del objeto la dicta al
 // estudiante que lo tiene físicamente. Seis dígitos = un millón de combinaciones.
@@ -285,6 +287,119 @@ export function formatAge(timestamp) {
  */
 export const DEMO_LATENCY_MS = 250;
 
+/* ─────────────────────────── El campus del API ─────────────────────────── */
+
+/**
+ * La posición de un pin: el API manda los píxeles del artwork y el mapa
+ * trabaja con porcentajes, como los pines de la demostración.
+ */
+function positionOf(report) {
+  const x = Number(report.map_x);
+  const y = Number(report.map_y);
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    const percent = artworkToPercent({ x, y }, MAP_IMAGE);
+    return { x: round2(percent.x), y: round2(percent.y) };
+  }
+
+  // Un reporte colocado por zona cae en el centro de la zona.
+  const zone = ZONE_BY_ID.get(report.zone);
+  const centroid = zone ? polygonCentroid(zone.polygon) : null;
+  if (!centroid) return { x: 0, y: 0 };
+  const percent = artworkToPercent(centroid, MAP_IMAGE);
+  return { x: round2(percent.x), y: round2(percent.y) };
+}
+
+/** Dos decimales: el pin se ve igual con más. */
+function round2(value) {
+  return parseFloat(value.toFixed(2));
+}
+
+/**
+ * El reporte como la app lo dibuja.
+ *
+ * El API manda dos vistas: la pública (todos la ven) y la del dueño (el dato
+ * ciego y el contacto). La app necesita una sola forma, así que la vista del
+ * dueño se encima de la pública cuando la hay.
+ */
+export function reportFromApi(report, { session, owner = null } = {}) {
+  const mine = report.alias === reporterAlias(session.id);
+  const zone = ZONE_BY_ID.get(report.zone);
+
+  return {
+    id: report.id,
+    type: report.kind,
+    ...positionOf(report),
+    zoneId: report.zone,
+    zoneLabel: zone?.label ?? null,
+    item: report.title,
+    description: report.public_description,
+    // El dueño es la sesión: nadie más puede publicar con su nombre.
+    ownerId: mine ? session.id : null,
+    alias: report.alias,
+    status: report.status,
+    timestamp: new Date(report.created_at).toISOString(),
+    // La clave se ve una sola vez, cuando se publica el reporte.
+    releaseKey: null,
+    releaseAttempts: undefined,
+    releaseMaxAttempts: undefined,
+    blindDetail: owner?.blind_detail ?? null,
+    safePointZoneId: owner?.safe_point_zone ?? null,
+  };
+}
+
+/** El reclamo como la bandeja lo lista. */
+export function claimFromApi(claim) {
+  return {
+    id: claim.id,
+    reportId: claim.reportId,
+    reportTitle: claim.reportTitle,
+    claimantAlias: claim.claimantAlias,
+    providedBlindDetail: claim.providedBlindDetail,
+    message: null,
+    status: claim.status,
+    direction: claim.direction,
+    createdAt: claim.createdAt,
+    // El contacto sólo se pide después de aprobar el reclamo.
+    contact: null,
+  };
+}
+
+/**
+ * El campus como lo sabe el API: los pines del mapa, los reportes del
+ * estudiante y los reclamos de la bandeja.
+ *
+ * Los pines son la proyección pública de todos los reportes; los del propio
+ * estudiante se piden otra vez para leer su dato ciego, que el mapa no
+ * publica.
+ */
+async function loadApiCampus(session) {
+  const [pins, inbox] = await Promise.all([listReports(), listInbox()]);
+  const mine = pins.filter((pin) => pin.alias === reporterAlias(session.id));
+  const owned = await Promise.all(mine.map((pin) => getReport(pin.id)));
+  const owners = new Map(owned.map((owner) => [owner.id, owner]));
+
+  const reports = pins.map((pin) =>
+    reportFromApi(pin, { session, owner: owners.get(pin.id) ?? null }),
+  );
+  const claims = inbox.map(claimFromApi);
+
+  // El contacto de un reclamo aprobado se pide por su reporte: es el único
+  // que lo suelta, y sólo después de la aprobación.
+  await Promise.all(
+    claims
+      .filter((claim) => claim.status === 'approved')
+      .map(async (claim) => {
+        try {
+          claim.contact = await getContactCard(claim.reportId);
+        } catch {
+          // Sin tarjeta el reclamo sigue en la bandeja, pero sin contacto.
+        }
+      }),
+  );
+
+  return { reports, claims };
+}
+
 /**
  * Los datos del campus: los reportes del mapa y los reclamos de la bandeja.
  * La demostración responde como un servidor: tarda lo que tardaría la
@@ -293,8 +408,13 @@ export const DEMO_LATENCY_MS = 250;
  * La demostración también sabe caerse: con `window.__campusFailure` la carga
  * falla como lo haría un campus caído, para que el estado de error sea un
  * estado de verdad y no una rama muerta.
+ *
+ * Con un API configurado el campus es el de verdad: los pines, los reportes
+ * y los reclamos salen de la base de datos.
  */
-export async function loadCampusData() {
+export async function loadCampusData(session) {
+  if (isApiConfigured()) return loadApiCampus(session);
+
   await new Promise((resolve) => setTimeout(resolve, DEMO_LATENCY_MS));
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new Error('offline');
