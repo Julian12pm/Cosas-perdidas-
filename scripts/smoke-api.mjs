@@ -15,6 +15,12 @@
  * The script leaves nothing behind: it stops the servers it started and the
  * container it woke up (the volume stays).
  *
+ * The database is the one it is told to use: with `DATABASE_URL` in the
+ * environment the journey walks against that Postgres as it is — no podman,
+ * no container — and empties its own tables before it starts, so a second run
+ * starts from the same state. Without it, the journey brings up the Postgres 16
+ * of the compose file and stops it when it is done.
+ *
  * The web port is not 5173: on this machine that one belongs to another
  * project. The journey picks a free port of its own (override it with
  * APP_URL) and it makes sure the server it drives is THIS app before it
@@ -28,6 +34,7 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Pool } from 'pg';
 import { servesOurApp } from './smoke-journey.mjs';
 
 /* ─────────────────────────── Configuración ─────────────────────────── */
@@ -35,6 +42,14 @@ import { servesOurApp } from './smoke-journey.mjs';
 export const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const APP_URL = process.env.APP_URL ?? 'http://localhost:5199';
 const API_URL = process.env.API_URL ?? 'http://localhost:3001';
+/**
+ * El Postgres que camina el viaje.
+ *
+ * Con `DATABASE_URL` en el entorno ésa es la base de datos de alguien más (el
+ * servicio de CI, la del propio desarrollador): el viaje la usa tal cual y no
+ * toca ningún contenedor. Sin ella, el viaje levanta la de Compose.
+ */
+const EXTERNAL_DATABASE = Boolean(process.env.DATABASE_URL);
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/objetos_perdidos';
 const SHOTS_DIR = join(ROOT, '.e2e', 'screenshots');
@@ -81,6 +96,40 @@ async function isUp(url) {
   } catch {
     return false;
   }
+}
+
+/* ────────────────────────────── La base de datos ────────────────────────────── */
+
+/**
+ * La conexión al Postgres que camina el viaje.
+ *
+ * El mismo `pg` que usa el API: sin podman y sin `psql` dentro de un
+ * contenedor, así que la base de datos del desarrollador y el servicio de CI
+ * se tratan igual.
+ */
+let pool = null;
+
+function db() {
+  if (!pool) {
+    pool = new Pool({ connectionString: DATABASE_URL, max: 2, connectionTimeoutMillis: 5000 });
+    // Un cliente ocioso que muere no debe tumbar el proceso.
+    pool.on('error', (error) => console.error('Postgres pool error:', error.message));
+  }
+  return pool;
+}
+
+/** Espera a que la base de datos acepte conexiones. */
+async function waitForDatabase(timeout = BOOT_TIMEOUT_MS) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      await db().query('select 1');
+      return true;
+    } catch {
+      await sleep(500);
+    }
+  }
+  throw new Error(`La base de datos ${DATABASE_URL} no aceptó conexiones a tiempo`);
 }
 
 /* ──────────────────────────── El stack ──────────────────────────── */
@@ -156,23 +205,18 @@ async function runMigrations() {
  * La base de datos empieza limpia: el volumen sobrevive a las corridas y un
  * recorrido que encuentra los pines de la corrida anterior no prueba nada.
  * El catálogo de zonas se queda: lo siembra el API desde el archivo generado.
+ *
+ * La misma limpieza sirve para la base de datos ajena (la del servicio de CI):
+ * el viaje vacía sus propias tablas y nada más, así que la segunda corrida
+ * empieza desde el mismo estado.
  */
 async function resetDatabase() {
-  const name = await dbContainerName();
-  if (!name) return;
-  const result = await run('podman', [
-    'exec',
-    name,
-    'psql',
-    '-U',
-    'postgres',
-    '-d',
-    'objetos_perdidos',
-    '-c',
-    'truncate reports, claim_requests, report_matches, custody_events, strikes, bans, audit_log, notifications, sessions, magic_links, users restart identity cascade;',
-  ]);
-  if (result.code !== 0) {
-    throw new Error(`No se pudo limpiar la base de datos:\n${result.output}`);
+  try {
+    await db().query(
+      'truncate reports, claim_requests, report_matches, custody_events, strikes, bans, audit_log, notifications, sessions, magic_links, users restart identity cascade;',
+    );
+  } catch (error) {
+    throw new Error(`No se pudo limpiar la base de datos: ${error.message}`);
   }
 }
 
@@ -209,14 +253,16 @@ function startApi() {
 
   const stop = async () => {
     if (child.exitCode !== null) return;
+    const pid = child.pid;
+    if (pid === undefined) return;
     try {
-      process.kill(-child.pid, 'SIGTERM');
+      process.kill(-pid, 'SIGTERM');
     } catch {
       /* el grupo ya no existe */
     }
     await sleep(800);
     try {
-      process.kill(-child.pid, 'SIGKILL');
+      process.kill(-pid, 'SIGKILL');
     } catch {
       /* ya estaba muerto */
     }
@@ -248,14 +294,16 @@ function startWeb() {
 
   const stop = async () => {
     if (child.exitCode !== null) return;
+    const pid = child.pid;
+    if (pid === undefined) return;
     try {
-      process.kill(-child.pid, 'SIGTERM');
+      process.kill(-pid, 'SIGTERM');
     } catch {
       /* el grupo ya no existe */
     }
     await sleep(800);
     try {
-      process.kill(-child.pid, 'SIGKILL');
+      process.kill(-pid, 'SIGKILL');
     } catch {
       /* ya estaba muerto */
     }
@@ -306,12 +354,31 @@ async function textOf(page, selector) {
 /** Los pines que hay en el mapa. */
 const pinCount = (page) => page.locator('button[aria-label^="Pin "]').count();
 
-/** Espera a que el mapa tenga ese número de pines. */
-async function waitForPins(page, expected, timeout = STEP_TIMEOUT_MS) {
+/** Los grupos del mapa: un marcador por zona con más de un reporte. */
+const clusterCount = (page) => page.locator('button[data-testid^="pin-cluster-marker-"]').count();
+
+/** Los marcadores del mapa: los pines sueltos y los grupos. */
+const markerCount = (page) =>
+  page.locator('button[aria-label^="Pin "], button[data-testid^="pin-cluster-marker-"]').count();
+
+/** Espera a que el mapa tenga ese número de grupos (un grupo por zona con varios reportes). */
+async function waitForClusters(page, expected, timeout = STEP_TIMEOUT_MS) {
   const deadline = Date.now() + timeout;
   let seen = 0;
   while (Date.now() < deadline) {
-    seen = await pinCount(page);
+    seen = await clusterCount(page);
+    if (seen === expected) return seen;
+    await sleep(150);
+  }
+  return seen;
+}
+
+/** Espera a que el mapa tenga ese número de marcadores. */
+async function waitForMarkers(page, expected, timeout = STEP_TIMEOUT_MS) {
+  const deadline = Date.now() + timeout;
+  let seen = 0;
+  while (Date.now() < deadline) {
+    seen = await markerCount(page);
     if (seen === expected) return seen;
     await sleep(150);
   }
@@ -432,22 +499,8 @@ async function publishReport(page, { kind, item, description, blindDetail, zoneI
 
 /** Lo que el API tiene en la base de datos, como texto. */
 async function query(sql) {
-  const name = await dbContainerName();
-  if (!name) return '';
-  const result = await run('podman', [
-    'exec',
-    name,
-    'psql',
-    '-U',
-    'postgres',
-    '-d',
-    'objetos_perdidos',
-    '-P',
-    'pager=off',
-    '-c',
-    sql,
-  ]);
-  return result.output.trim();
+  const result = await db().query(sql);
+  return result.rows.map((row) => Object.values(row).join(' | ')).join('\n');
 }
 
 /* ───────────────────────────────── Main ───────────────────────────────── */
@@ -465,9 +518,16 @@ async function main() {
   }
 
   console.log('▌ Levantando el stack real: Postgres 16, el API y la web…');
-  await ensureImage();
-  const container = await startDatabase();
-  console.log(`  · Postgres arriba en ${container}`);
+  if (EXTERNAL_DATABASE) {
+    // La base de datos es de alguien más (el servicio de CI): se usa tal
+    // cual y no se levanta ningún contenedor.
+    console.log(`  · Base de datos de fuera (${DATABASE_URL}): sin contenedores`);
+    await waitForDatabase();
+  } else {
+    await ensureImage();
+    const container = await startDatabase();
+    console.log(`  · Postgres arriba en ${container}`);
+  }
   const migrations = await runMigrations();
   console.log(`  · Migraciones: ${migrations}`);
   await resetDatabase();
@@ -607,18 +667,48 @@ async function main() {
       });
 
       await finder.locator(t('release-key-dialog')).waitFor({ state: 'detached' });
-      const finderPins = await waitForPins(finder, 2);
+      const finderMarkers = await waitForMarkers(finder, 1);
+      const finderClusters = await waitForClusters(finder, 1);
       record(
-        'el reporte de hallazgo se publica y suma su pin',
-        finderPins === 2,
-        '2 pines en el mapa',
-        `${finderPins} pin(es)`,
+        'el reporte de hallazgo se publica y se agrupa con el otro de su zona',
+        finderMarkers === 1 && finderClusters === 1,
+        '1 marcador (un grupo) en el mapa',
+        `${finderMarkers} marcador(es), ${finderClusters} grupo(s)`,
+      );
+      const clusterMarker = finder.locator('button[data-testid^="pin-cluster-marker-"]');
+      const clusterName = await clusterMarker.getAttribute('aria-label');
+      record(
+        'el grupo tiene un nombre accesible que dice cuántos y dónde',
+        clusterName === '2 objetos reportados en E · Aulas y Taller de Dibujo',
+        '"2 objetos reportados en E · Aulas y Taller de Dibujo"',
+        clusterName ?? 'sin nombre accesible',
+      );
+      const clusterBadge = await finder.locator(t('pin-cluster-count')).innerText();
+      record(
+        'el grupo lleva la cuenta de sus reportes',
+        clusterBadge.trim() === '2',
+        'la cuenta "2"',
+        clusterBadge.trim(),
       );
       screenshots.push(join(SHOTS_DIR, 'api-04-found-report.png'));
       await finder.screenshot({ path: screenshots.at(-1) });
 
       /* ── 4. El reclamo: el dato ciego y el enlace con el hallazgo ─────── */
-      await finder.locator(`button[aria-label^="Pin perdido: ${OWNER_ITEM}"]`).click();
+      // Los dos reportes viven en la misma zona, así que el mapa los muestra
+      // como un solo marcador con la cuenta: el grupo se abre y cada reporte
+      // se alcanza con el ratón.
+      await clusterMarker.click();
+      await finder.locator(t('pin-cluster-dialog')).waitFor({ state: 'visible' });
+      const clusterEntries = finder.locator('[data-testid^="pin-cluster-entry-"]');
+      record(
+        'el grupo abre la lista de los dos reportes',
+        (await clusterEntries.count()) === 2,
+        '2 entradas en la lista',
+        `${await clusterEntries.count()} entrada(s)`,
+      );
+      screenshots.push(join(SHOTS_DIR, 'api-04c-cluster-list.png'));
+      await finder.screenshot({ path: screenshots.at(-1) });
+      await clusterEntries.filter({ hasText: OWNER_ITEM }).click();
       await finder.locator(t('claim-open')).waitFor({ state: 'visible' });
       screenshots.push(join(SHOTS_DIR, 'api-05-claim-open.png'));
       await finder.screenshot({ path: screenshots.at(-1) });
@@ -685,10 +775,12 @@ async function main() {
 
       /* ── 6. La entrega: la clave que dictó el dueño ──────────────────── */
       await finder.getByRole('button', { name: 'Mapa', exact: true }).click();
-      // Los dos reportes viven en la misma zona, así que sus pines se pisan:
-      // el ratón sólo alcanza el de arriba. El teclado sí llega al de abajo,
-      // que es el del hallazgo (la app anuncia el recorrido con el teclado).
-      await finder.locator(`button[aria-label^="Pin encontrado: ${FINDER_ITEM}"]`).press('Enter');
+      // Los dos reportes viven en la misma zona: el mapa los muestra como un
+      // marcador con la cuenta, y el del hallazgo se alcanza con el ratón a
+      // través de la lista del grupo.
+      await finder.locator('button[data-testid^="pin-cluster-marker-"]').click();
+      await finder.locator(t('pin-cluster-dialog')).waitFor({ state: 'visible' });
+      await finder.locator('[data-testid^="pin-cluster-entry-"]', { hasText: FINDER_ITEM }).click();
       await finder.locator(t('release-key-input')).waitFor({ state: 'visible' });
       await finder.locator(t('release-key-input')).fill(releaseKey);
       screenshots.push(join(SHOTS_DIR, 'api-09-release-key-input.png'));
@@ -700,11 +792,12 @@ async function main() {
       await finder.reload({ waitUntil: 'load' });
       await finder.locator('header').waitFor({ state: 'visible' });
       const afterPins = await pinCount(finder);
+      const afterMarkers = await markerCount(finder);
       record(
         'los pines salen del mapa cuando la entrega se confirma',
-        afterPins === 0,
-        '0 pines en el mapa',
-        `${afterPins} pin(es)`,
+        afterPins === 0 && afterMarkers === 0,
+        '0 pines y 0 grupos en el mapa',
+        `${afterPins} pin(es), ${afterMarkers} marcador(es)`,
       );
       screenshots.push(join(SHOTS_DIR, 'api-10-after-delivery.png'));
       await finder.screenshot({ path: screenshots.at(-1) });
@@ -754,8 +847,12 @@ async function main() {
   } finally {
     await web.stop();
     await api.stop();
-    // El contenedor se detiene; el volumen se queda.
-    await run('podman', ['compose', 'stop', 'db']);
+    // El contenedor se detiene; el volumen se queda. La base de datos de
+    // fuera se deja como estaba: sólo se vaciaron sus tablas al empezar.
+    if (!EXTERNAL_DATABASE) {
+      await run('podman', ['compose', 'stop', 'db']);
+    }
+    await pool?.end();
   }
 
   printReport();
@@ -792,10 +889,13 @@ function printReport() {
 
 const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
 if (isMain) {
-  main().catch((error) => {
+  main().catch(async (error) => {
     console.error('\nLa prueba falló antes de terminar:');
     console.error(error);
     printReport();
+    // La conexión se cierra aquí también: un fallo temprano no debe dejar al
+    // proceso esperando a la base de datos.
+    await pool?.end();
     process.exitCode = 1;
   });
 }

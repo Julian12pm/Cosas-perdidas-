@@ -189,13 +189,24 @@ const UNIT_BANDS = {
 };
 
 /**
+ * The plan's own "DATOS GENERALES" box: the legend of the plan, printed on
+ * the artwork with its own colour samples (52 CONSTRUCCIONES, 5
+ * ESTACIONAMIENTOS, 10 PUNTOS DE REUNIÓN, 14 MÓDULOS DE INTERNET).
+ *
+ * The app has a real legend panel — a searchable list of names — so the
+ * printed one would contradict it: two legends, two truths. The generator
+ * paints the box over with the ground of the page.
+ */
+const DATOS_GENERALES_BOX = { x: 45, y: 515, width: 175, height: 95 };
+
+/**
  * Regions of the raster that are map furniture, not campus content: the
  * right-hand legend panel, the "DATOS GENERALES" box, the "PLANO GENERAL
  * CAMPUS ITM N°1" card, the ITM logo and the "POZO DE AGUA" callout.
  */
 const EXCLUDED_REGIONS = [
   { x: 700, y: 0, width: 146, height: 647 }, // legend panel + title card + logo
-  { x: 45, y: 515, width: 175, height: 95 }, // DATOS GENERALES box
+  DATOS_GENERALES_BOX, // DATOS GENERALES box (the plan's own legend)
   { x: 258, y: 557, width: 48, height: 25 }, // POZO DE AGUA callout
 ];
 
@@ -309,6 +320,10 @@ const isCyanPaint = (r, g, b) => b >= 180 && b - r >= 40 && g >= 120 && g - b >=
 
 const inExcluded = (x, y) =>
   EXCLUDED_REGIONS.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
+
+/** True when the point falls inside a rectangle. */
+const inBox = (x, y, box) =>
+  x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height;
 
 /* ------------------------------------------------------------------ *
  * Connected components
@@ -1241,6 +1256,11 @@ for (let y = 0; y < H; y++) {
       layer = 'paper';
     }
 
+    // La leyenda impresa del plano no se lleva al arte: la app tiene su
+    // panel de nombres, y el recuadro con sus muestras de color se
+    // contradice con él. El generador lo tapa con el fondo de la página.
+    if (inBox(x, y, DATOS_GENERALES_BOX)) layer = 'paper';
+
     darkLayer[i] = LAYER_INDEX.get(layer);
     layerCounts.set(layer, (layerCounts.get(layer) ?? 0) + 1);
   }
@@ -1385,6 +1405,10 @@ for (const lot of parkingBoxes) {
   });
 }
 
+// La pista de atletismo: el óvalo del plano. Su catálogo guarda la CAJA que
+// lo envuelve, no el óvalo: un óvalo no es un polígono y el renderer no
+// puede pintar una zona plana con la caja, porque borraría el pasto de
+// dentro. La pista la deja el raster, que es quien dibuja el óvalo.
 for (const [index, box] of trackBoxes.entries()) {
   zones.push({
     id: `track-${index + 1}`,

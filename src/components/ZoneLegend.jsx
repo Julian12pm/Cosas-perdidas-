@@ -126,6 +126,10 @@ export default function ZoneLegend({ zones = [], onSelect, onHover }) {
           A y AF son los dos puntos de entrega seguros: ahí entregas un objeto sin conocer a su
           dueño.
         </p>
+        <p className="mt-1 text-xs leading-relaxed text-text-muted">
+          El croquis no dibuja las calles: vienen del plano oficial, y los nombres de los edificios
+          viven aquí.
+        </p>
       </div>
 
       {/* En el teléfono la lista se pliega: el croquis es lo primero que se ve. */}
