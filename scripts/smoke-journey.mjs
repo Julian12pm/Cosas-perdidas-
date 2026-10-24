@@ -19,7 +19,16 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { MAP_IMAGE, ZONES } from '../src/map/zones.js';
+import {
+  LIGHT,
+  extrudePolygon,
+  heightFor,
+  pointInPolygon,
+  polygonCentroid,
+  polygonPath,
+  zoneAtPoint,
+} from '../src/map/geometry.js';
+import { MAP_IMAGE, ZONE_BY_ID, ZONES } from '../src/map/zones.js';
 
 /* ─────────────────────────── Configuración ─────────────────────────── */
 
@@ -177,17 +186,19 @@ async function artworkLayerBox(page) {
 }
 
 /**
- * El raster del croquis: la caja que se ve en la pantalla y el marco de la
- * letterbox sobre su caja de layout (la que el zoom no toca).
+ * El artwork del croquis: la caja que se ve en la pantalla y el marco de la
+ * letterbox sobre su caja de layout (la que el zoom no toca). El artwork ya
+ * no es un mapa de bits sino un <svg>: su tamaño natural es el viewBox.
  */
 async function rasterBox(page) {
   return page.evaluate(() => {
-    const img = document.querySelector('[data-testid="map-raster"]');
-    if (!img || !img.naturalWidth) return null;
-    const style = getComputedStyle(img);
+    const artwork = document.querySelector('[data-testid="map-artwork"]');
+    const viewBox = artwork?.viewBox?.baseVal;
+    if (!artwork || !viewBox || !(viewBox.width > 0)) return null;
+    const style = getComputedStyle(artwork);
     const local = { width: parseFloat(style.width), height: parseFloat(style.height) };
-    const natural = { width: img.naturalWidth, height: img.naturalHeight };
-    const rect = img.getBoundingClientRect();
+    const natural = { width: viewBox.width, height: viewBox.height };
+    const rect = artwork.getBoundingClientRect();
     const scale = Math.min(local.width / natural.width, local.height / natural.height);
     const painted = {
       x: (local.width - natural.width * scale) / 2,
@@ -519,19 +530,25 @@ async function runJourney(browser, viewport) {
     );
 
     /* ── 2. El mapa: croquis, zonas y los cuatro pines de arranque ───── */
-    await page.locator(t('map-raster')).waitFor({ state: 'visible' });
+    await page.locator(t('map-artwork')).waitFor({ state: 'visible' });
     await page.waitForFunction(
       () => document.querySelectorAll('button[aria-label^="Pin "]').length > 0,
     );
-    const naturalWidth = await page.evaluate(
-      () => document.querySelector('[data-testid="map-raster"]')?.naturalWidth ?? 0,
-    );
+    const artworkBox = await page.evaluate(() => {
+      const node = document.querySelector('[data-testid="map-artwork"]');
+      const box = node?.viewBox?.baseVal;
+      return {
+        tag: node?.tagName ?? '',
+        width: box?.width ?? 0,
+        height: box?.height ?? 0,
+      };
+    });
     record(
       vp,
-      'el croquis se descarga y se dibuja',
-      naturalWidth > 0,
-      'naturalWidth > 0',
-      `naturalWidth=${naturalWidth}`,
+      'el croquis se dibuja como vector y no como mapa de bits',
+      artworkBox.tag === 'svg' && artworkBox.width === 700 && artworkBox.height === 647,
+      'un <svg> con un viewBox de 700 x 647',
+      `<${artworkBox.tag}> viewBox=${artworkBox.width}x${artworkBox.height}`,
     );
     const zones = await page.locator('[data-zone-id]').count();
     record(
@@ -540,6 +557,106 @@ async function runJourney(browser, viewport) {
       zones > 0,
       '> 0 zonas con data-zone-id',
       `${zones} zonas`,
+    );
+
+    /* ── 2b. El contrato accesible del croquis ───────────────────────── */
+    const a11y = await page.evaluate(() => {
+      const options = [...document.querySelectorAll('[data-testid="map"] [role="option"]')];
+      let smallest = Infinity;
+      for (const option of options) {
+        const rect = option.getBoundingClientRect();
+        smallest = Math.min(smallest, rect.width, rect.height);
+      }
+      const listbox = document.querySelector('[data-testid="map"] [role="listbox"]');
+      return {
+        options: options.length,
+        smallest,
+        active: listbox?.getAttribute('aria-activedescendant') ?? null,
+        tabStops: options.filter((option) => option.getAttribute('tabindex') === '0').length,
+        live: Boolean(document.querySelector('[data-testid="map"] [role="status"]')),
+      };
+    });
+    record(
+      vp,
+      'el croquis conserva sus 90 opciones y su único punto de tabulación',
+      a11y.options === 90 && a11y.tabStops === 1 && a11y.active !== null && a11y.live,
+      '90 opciones, un tab stop, aria-activedescendant y la región viva',
+      JSON.stringify(a11y),
+    );
+    record(
+      vp,
+      'las zonas del croquis tienen un objetivo táctil de 44 px',
+      a11y.smallest >= 44 - 0.5,
+      'ningún lado por debajo de 44px (el navegador redondea el reparto en porcentajes)',
+      `el lado más pequeño mide ${a11y.smallest.toFixed(2)}px`,
+    );
+
+    /* ── 2c. La escena: las construcciones de pie y los puntos seguros ── */
+    const scene = await page.evaluate(() => {
+      const svg = document.querySelector('[data-testid="map-artwork"]');
+      if (!svg) return null;
+      const group = svg.querySelector('[data-volume="bldg-2k-0"]');
+      const paths = (name) =>
+        [...(group?.querySelectorAll(`[data-shape="${name}"]`) ?? [])].map((node) =>
+          node.getAttribute('d'),
+        );
+      return {
+        volumes: svg.querySelectorAll('[data-layer="volumes"] [data-building]').length,
+        top: paths('top'),
+        sides: paths('side'),
+        shadow: paths('shadow'),
+        safeFill:
+          svg.querySelector('[data-building="bldg-a"] [data-shape="top"]')?.getAttribute('fill') ??
+          null,
+        plainFill:
+          svg.querySelector('[data-volume="bldg-2k-0"] [data-shape="top"]')?.getAttribute('fill') ??
+          null,
+        safeMarks: svg.querySelectorAll('[data-shape="safe-mark"]').length,
+      };
+    });
+
+    const sample = ZONE_BY_ID.get('bldg-2k');
+    const volume = extrudePolygon(sample.polygon, heightFor(sample), LIGHT);
+    const expectedVolumes = ZONES.filter((zone) => zone.kind === 'building').reduce(
+      (total, zone) => total + (zone.fragments?.length ?? 1),
+      0,
+    );
+    record(
+      vp,
+      'las construcciones se dibujan como volúmenes (cara, paredes y sombra)',
+      scene?.top?.[0] === polygonPath(volume.top) &&
+        scene?.sides?.[0] === polygonPath(volume.sides[0]) &&
+        scene?.shadow?.[0] === polygonPath(volume.shadow),
+      'la cara, la primera pared y la sombra de 2K con la geometría del catálogo',
+      `cara=${scene?.top?.[0]?.slice(0, 32)} paredes=${scene?.sides?.length ?? 0} sombra=${scene?.shadow?.[0]?.slice(0, 32)}`,
+    );
+    record(
+      vp,
+      'todas las piezas de las construcciones se dibujan',
+      scene?.volumes === expectedVolumes,
+      `${expectedVolumes} volúmenes (uno por fragmento del catálogo)`,
+      `${scene?.volumes} volúmenes`,
+    );
+    record(
+      vp,
+      'los puntos de entrega seguros se pintan con el color de la marca',
+      typeof scene?.safeFill === 'string' && scene.safeFill.includes('brand'),
+      'la cara de A con el color de la marca',
+      scene?.safeFill ?? 'no se encontró',
+    );
+    record(
+      vp,
+      'las construcciones corriente no se pintan con el color de la marca',
+      typeof scene?.plainFill === 'string' && !scene.plainFill.includes('brand'),
+      'la cara de 2K sin el color de la marca',
+      scene?.plainFill ?? 'no se encontró',
+    );
+    record(
+      vp,
+      'los puntos de entrega seguros llevan su marca',
+      scene?.safeMarks === 2,
+      '2 marcas (A y AF)',
+      `${scene?.safeMarks} marca(s)`,
     );
     const seedPins = await pinCount(page);
     record(
@@ -603,6 +720,30 @@ async function runJourney(browser, viewport) {
       pinBox
         ? `${Math.round(pinBox.pinHeight)}px de pin sobre ${Math.round(pinBox.mapHeight)}px de croquis (${Math.round((pinBox.pinHeight / pinBox.mapHeight) * 100)}%)`
         : 'no se encontró',
+    );
+
+    // La sombra del pin tiene que caer hacia abajo a la derecha: la misma
+    // dirección en la que cae la sombra de los volúmenes del croquis.
+    const pinShadow = await page.evaluate(() => {
+      const pin = document.querySelector('button[aria-label^="Pin "]');
+      const shadow = pin?.querySelector('[data-testid="pin-shadow"]');
+      if (!pin || !shadow) return null;
+      const pinBox = pin.getBoundingClientRect();
+      const shadowBox = shadow.getBoundingClientRect();
+      return {
+        dx: shadowBox.left + shadowBox.width / 2 - (pinBox.left + pinBox.width / 2),
+        dy: shadowBox.top + shadowBox.height / 2 - pinBox.bottom,
+        radius: shadowBox.height / 2,
+      };
+    });
+    record(
+      vp,
+      'la sombra del pin cae hacia abajo a la derecha, como la de los volúmenes',
+      pinShadow !== null && pinShadow.dx > 0 && pinShadow.dy > 0 && pinShadow.radius > 0,
+      'la sombra del pin a la derecha y debajo de la punta',
+      pinShadow
+        ? `dx=${pinShadow.dx.toFixed(1)} dy=${pinShadow.dy.toFixed(1)} radio=${pinShadow.radius.toFixed(1)}`
+        : 'no se encontró la sombra',
     );
 
     const touchAction = await page.evaluate(() => {
@@ -776,8 +917,22 @@ async function runJourney(browser, viewport) {
         ...candidate,
         zoomed: screenOfArtworkLayer(layerAfter, candidate.artwork),
         plain: screenOfArtworkLayer(layerBefore, candidate.artwork),
+        // El toque lo resuelve la geometría del catálogo, así que sólo vale
+        // una zona cuyo centro de caja cae de verdad dentro de su forma.
+        resolved: zoneAtPoint(
+          {
+            x: candidate.artwork.x * MAP_IMAGE.width,
+            y: candidate.artwork.y * MAP_IMAGE.height,
+          },
+          ZONES,
+        )?.id,
       }))
-      .filter((candidate) => inside(candidate.zoomed) && inside(candidate.plain))
+      .filter(
+        (candidate) =>
+          candidate.resolved === candidate.id &&
+          inside(candidate.zoomed) &&
+          inside(candidate.plain),
+      )
       .sort(
         (left, right) =>
           Math.hypot(right.zoomed.x - cursor.x, right.zoomed.y - cursor.y) -
@@ -852,7 +1007,7 @@ async function runJourney(browser, viewport) {
           if (!element) continue;
           if (element.closest('[data-zone-id]')) continue;
           if (element.closest('button[aria-label^="Pin "]')) continue;
-          if (element.closest('[data-testid="map-raster"]')) return { x, y };
+          if (element.closest('[data-testid="map-artwork"]')) return { x, y };
         }
       }
       return null;
@@ -988,6 +1143,60 @@ async function runJourney(browser, viewport) {
     await take('choose-type', 3);
     await page.keyboard.press('Escape');
     await page.locator('[role="dialog"]').waitFor({ state: 'detached' });
+
+    /* ── 6b. Un toque en un fragmento resuelve su construcción ───────── */
+    // El plan corta algunas construcciones en dos con su propio código
+    // impreso: el ala es una forma de su cuenta, fuera de la forma
+    // principal, y un toque sobre ella tiene que resolver la
+    // construcción y no el suelo.
+    //
+    // Lo decide el catálogo: las áreas de toque de la pantalla son cajas
+    // de 44px que se solapan entre sí (una construcción pequeña se
+    // traga la de al lado), y sólo serán las formas de verdad cuando el
+    // croquis se dibuje en SVG.
+    const fragmentZone = ZONE_BY_ID.get('bldg-2h');
+    const wing = fragmentZone.fragments.at(-1);
+    const wingPoint = polygonCentroid(wing);
+    const wingResolved = zoneAtPoint(wingPoint, ZONES);
+    const outsidePrimary = !pointInPolygon(wingPoint, fragmentZone.polygon);
+    record(
+      vp,
+      'un toque en un fragmento resuelve la construcción partida',
+      outsidePrimary && wingResolved?.id === fragmentZone.id,
+      `el toque en el ala de "${fragmentZone.id}" (fuera de su forma principal) lo resuelve`,
+      wingResolved ? `${wingResolved.id} · ${wingResolved.label}` : 'nada',
+    );
+
+    /* ── 6c. El toque de verdad: el ala de 2H, en el navegador ─────── */
+    // El botón del DOM es sólo un área de toque de 44 px y se solapa con el
+    // de sus vecinos: el ala de 2H queda debajo del botón de otro. El toque
+    // lo resuelve la geometría, así que aquí tiene que salir 2H.
+    const wingScreen = screenOfArtwork(await rasterBox(page), {
+      x: wingPoint.x / MAP_IMAGE.width,
+      y: wingPoint.y / MAP_IMAGE.height,
+    });
+    await page.mouse.click(wingScreen.x, wingScreen.y);
+    await page
+      .locator('[role="dialog"]')
+      .waitFor({ state: 'visible', timeout: 5000 })
+      .catch(() => {});
+    const wingDialog =
+      (await page.locator('[role="dialog"]').count()) > 0
+        ? await textOf(page, '[role="dialog"]')
+        : '';
+    record(
+      vp,
+      'un toque en el ala de 2H abre el diálogo de 2H (no el de la vecina)',
+      wingDialog.includes(fragmentZone.label),
+      `el diálogo dice "${fragmentZone.label}"`,
+      wingDialog.slice(0, 140) ||
+        `no se abrió ningún diálogo (toque en ${wingScreen.x.toFixed(0)}, ${wingScreen.y.toFixed(0)})`,
+    );
+    await page.keyboard.press('Escape');
+    await page
+      .locator('[role="dialog"]')
+      .waitFor({ state: 'detached' })
+      .catch(() => {});
 
     /* ── 7. El buscador de zonas abre el mismo flujo ─────────────────── */
     await page.locator(t('picker-input')).click();
@@ -1629,7 +1838,7 @@ async function runJourney(browser, viewport) {
     /* ── 20. El croquis que no llega se dice y se puede reintentar ───── */
     // El servidor responde 200 pero con un cuerpo que no es una imagen: el
     // croquis "no llega" sin ensuciar la consola con un error de red.
-    await page.route('**/mapa-itm.png', (route) =>
+    await page.route('**/mapa-itm-dark.png', (route) =>
       route.fulfill({ status: 200, contentType: 'image/png', body: 'no soy una imagen' }),
     );
     await page.reload({ waitUntil: 'commit' });
@@ -1642,7 +1851,7 @@ async function runJourney(browser, viewport) {
       '1 panel state-error y 0 zonas pintadas',
       `${await page.locator(t('state-error')).count()} panel(es), ${await page.locator('[data-zone-id]').count()} zonas`,
     );
-    await page.unroute('**/mapa-itm.png');
+    await page.unroute('**/mapa-itm-dark.png');
     await page.getByRole('button', { name: 'Reintentar' }).click();
     await page.waitForFunction(() => document.querySelectorAll('[data-zone-id]').length > 0);
     record(

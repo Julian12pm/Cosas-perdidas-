@@ -3,18 +3,25 @@ import {
   artworkToPercent,
   clampTransform,
   clientToArtwork,
+  DEFAULT_HEIGHT,
+  extrudePolygon,
   fitContain,
+  heightCategory,
+  heightFor,
   invertTransform,
+  LIGHT,
   nextZoneInDirection,
   panBy,
   pointInPolygon,
   polygonArea,
   polygonBounds,
   polygonCentroid,
+  polygonPath,
   scaleForPoint,
   searchZones,
   zoneAtPoint,
   zoneReadingOrder,
+  zoneShapes,
   zoneToPercent,
   zoomAt,
 } from './geometry.js';
@@ -321,6 +328,63 @@ describe('zoneAtPoint', () => {
   });
 });
 
+describe('zoneAtPoint with fragments', () => {
+  // The plan cuts some constructions in half with their own printed label:
+  // the wing is a shape of its own, and a tap on it still resolves the
+  // building it belongs to.
+  const WING = [
+    [0, 0],
+    [40, 0],
+    [40, 20],
+    [0, 20],
+  ];
+  const BODY = [
+    [60, 0],
+    [160, 0],
+    [160, 60],
+    [60, 60],
+  ];
+  const FRAGMENTED = {
+    id: 'bldg-2h',
+    polygon: BODY,
+    fragments: [BODY, WING],
+  };
+
+  it('resolves the building from a fragment that is not its polygon', () => {
+    expect(zoneAtPoint({ x: 20, y: 10 }, [FRAGMENTED])?.id).toBe('bldg-2h');
+  });
+
+  it('resolves the building from its primary fragment too', () => {
+    expect(zoneAtPoint({ x: 100, y: 30 }, [FRAGMENTED])?.id).toBe('bldg-2h');
+  });
+
+  it('ignores the fragments of a zone the point is not on', () => {
+    expect(zoneAtPoint({ x: 300, y: 30 }, [FRAGMENTED])).toBeNull();
+  });
+
+  it('keeps resolving the zones that carry no fragments', () => {
+    expect(zoneAtPoint({ x: 250, y: 260 }, ZONES)?.id).toBe('bldg-2k');
+  });
+
+  it('picks the smallest shape that holds the point', () => {
+    const overlapping = {
+      id: 'bldg-2h',
+      polygon: BODY,
+      fragments: [
+        BODY,
+        [
+          [70, 10],
+          [90, 10],
+          [90, 30],
+          [70, 30],
+        ],
+      ],
+    };
+    expect(zoneAtPoint({ x: 80, y: 20 }, [overlapping])?.id).toBe('bldg-2h');
+    expect(zoneAtPoint({ x: 120, y: 40 }, [overlapping])?.id).toBe('bldg-2h');
+  });
+});
+
 describe('zoneToPercent', () => {
   it('maps a box covering the whole artwork to a full-size placement', () => {
     expect(
@@ -603,5 +667,167 @@ describe('nextZoneInDirection', () => {
 
   it('returns null for a zone that is not on the map', () => {
     expect(nextZoneInDirection(ROWS, 'ghost', 'right')).toBeNull();
+  });
+});
+
+describe('zoneShapes', () => {
+  it('returns every fragment of a construction the plan draws in pieces', () => {
+    const shapes = zoneShapes({ polygon: RECTANGLE, fragments: [RECTANGLE, L_SHAPE] });
+    expect(shapes).toHaveLength(2);
+    expect(shapes[1]).toBe(L_SHAPE);
+  });
+
+  it('returns the polygon of a zone that carries no fragments', () => {
+    expect(zoneShapes({ polygon: RECTANGLE })).toEqual([RECTANGLE]);
+  });
+
+  it('returns nothing for a zone without a shape', () => {
+    expect(zoneShapes({ id: 'ghost' })).toEqual([]);
+  });
+});
+
+describe('heightCategory', () => {
+  // The plan states the use of every building in its own legend, and the use
+  // is what says how tall it is.
+  it('reads a block of classrooms as low', () => {
+    expect(heightCategory({ name: 'Aula' })).toBe('low');
+    expect(heightCategory({ name: 'Aulas de Titulación y PRADHE' })).toBe('low');
+  });
+
+  it('reads a laboratory, a workshop or a store as medium', () => {
+    expect(heightCategory({ name: 'Laboratorio de Rayos X' })).toBe('medium');
+    expect(heightCategory({ name: 'Lab. de análisis Químicos y Metalúrgicos' })).toBe('medium');
+    expect(heightCategory({ name: 'Taller de Dibujo' })).toBe('medium');
+    expect(heightCategory({ name: 'Almacén de Materias Primas' })).toBe('medium');
+    expect(heightCategory({ name: 'Cátedra Demostrativa (laboratorio)' })).toBe('medium');
+    expect(heightCategory({ name: 'Sala Audiovisual N° 1' })).toBe('medium');
+    expect(heightCategory({ name: 'Depto. de Ing. en Materiales' })).toBe('medium');
+  });
+
+  it('reads the gymnasium, the auditorium, the library and the council as tall', () => {
+    expect(heightCategory({ name: 'Gimnasio Auditivo' })).toBe('tall');
+    expect(heightCategory({ name: 'Auditorio' })).toBe('tall');
+    expect(heightCategory({ name: 'Centro de Información (Biblioteca)' })).toBe('tall');
+    expect(heightCategory({ name: 'Consejo Estudiantil' })).toBe('tall');
+  });
+
+  it('falls back to medium for a name the legend does not describe', () => {
+    expect(heightCategory({ name: 'Edificio sin código legible' })).toBe('medium');
+    expect(heightCategory({})).toBe('medium');
+  });
+
+  it('lets the tall family win over the low one', () => {
+    expect(heightCategory({ name: 'Aulas del Gimnasio' })).toBe('tall');
+  });
+});
+
+describe('heightFor', () => {
+  it('gives a low volume to the classrooms', () => {
+    expect(heightFor({ name: 'Aula' })).toBe(4);
+  });
+
+  it('gives a medium volume to the laboratories and the workshops', () => {
+    expect(heightFor({ name: 'Laboratorio de Rayos X' })).toBe(6);
+  });
+
+  it('gives a tall volume to the gymnasium and the library', () => {
+    expect(heightFor({ name: 'Centro de Información (Biblioteca)' })).toBe(9);
+  });
+
+  it('gives the default volume to a name the legend does not describe', () => {
+    expect(heightFor({ name: 'Edificio sin código legible' })).toBe(DEFAULT_HEIGHT);
+    expect(DEFAULT_HEIGHT).toBe(6);
+  });
+
+  it('reads the height from the name, never from the code', () => {
+    expect(heightFor({ code: '2K', name: 'Aula' })).toBe(heightFor({ name: 'Aula' }));
+    expect(heightFor({ code: 'AF', name: 'Centro de Información (Biblioteca)' })).toBe(9);
+  });
+});
+
+describe('extrudePolygon', () => {
+  const SQUARE = [
+    [0, 0],
+    [10, 0],
+    [10, 10],
+    [0, 10],
+  ];
+  const OFFSET = 4 * Math.SQRT1_2;
+
+  it('offsets the top face toward the light by the height', () => {
+    expect(OFFSET).toBeCloseTo(2.828, 3);
+    const { top } = extrudePolygon(SQUARE, 4, LIGHT);
+    expect(top).toHaveLength(4);
+    expect(top[0][0]).toBeCloseTo(-4 * Math.SQRT1_2, 6);
+    expect(top[0][1]).toBeCloseTo(-4 * Math.SQRT1_2, 6);
+    expect(top[2][0]).toBeCloseTo(10 - 4 * Math.SQRT1_2, 6);
+  });
+
+  it('offsets the shadow away from the light', () => {
+    const { shadow } = extrudePolygon(SQUARE, 4, LIGHT);
+    expect(shadow[0][0]).toBeCloseTo(4 * Math.SQRT1_2, 6);
+    expect(shadow[0][1]).toBeCloseTo(4 * Math.SQRT1_2, 6);
+    expect(shadow[2][0]).toBeCloseTo(10 + 4 * Math.SQRT1_2, 6);
+  });
+
+  it('walls only the edges that face away from the light', () => {
+    const { sides } = extrudePolygon(SQUARE, 4, LIGHT);
+    expect(sides).toHaveLength(2);
+    // La pared de la derecha (la que mira a la derecha) y la de abajo.
+    expect(sides[0][0]).toEqual([10, 0]);
+    expect(sides[0][1]).toEqual([10, 10]);
+    expect(sides[1][0]).toEqual([10, 10]);
+    expect(sides[1][1]).toEqual([0, 10]);
+  });
+
+  it('builds every wall as the quad that joins the base edge to the top edge', () => {
+    const { sides } = extrudePolygon(SQUARE, 4, LIGHT);
+    const [a, b, topB, topA] = sides[0];
+    expect(topA[0]).toBeCloseTo(a[0] - 4 * Math.SQRT1_2, 6);
+    expect(topA[1]).toBeCloseTo(a[1] - 4 * Math.SQRT1_2, 6);
+    expect(topB[0]).toBeCloseTo(b[0] - 4 * Math.SQRT1_2, 6);
+    expect(topB[1]).toBeCloseTo(b[1] - 4 * Math.SQRT1_2, 6);
+  });
+
+  it('extrudes toward any light', () => {
+    const { top, sides } = extrudePolygon(SQUARE, 4, { x: 1, y: 0 });
+    expect(top[0][0]).toBeCloseTo(4, 6);
+    expect(top[0][1]).toBeCloseTo(0, 6);
+    // Con la luz a la derecha sólo se ve la pared que le da la espalda: la izquierda.
+    expect(sides).toHaveLength(1);
+    expect(sides[0][0]).toEqual([0, 10]);
+    expect(sides[0][1]).toEqual([0, 0]);
+  });
+
+  it('extrudes a ring that is not a rectangle', () => {
+    const { top, sides, shadow } = extrudePolygon(L_SHAPE, 6, LIGHT);
+    expect(top).toHaveLength(L_SHAPE.length);
+    expect(shadow).toHaveLength(L_SHAPE.length);
+    expect(sides.length).toBeGreaterThan(0);
+  });
+
+  it('returns an empty volume for a ring that encloses nothing', () => {
+    expect(extrudePolygon([], 6, LIGHT)).toEqual({ top: [], sides: [], shadow: [] });
+    expect(extrudePolygon([[0, 0]], 6, LIGHT)).toEqual({ top: [], sides: [], shadow: [] });
+  });
+});
+
+describe('polygonPath', () => {
+  it('writes the path of a ring', () => {
+    expect(
+      polygonPath([
+        [0, 0],
+        [10, 0],
+        [10, 10],
+      ]),
+    ).toBe('M 0 0 L 10 0 L 10 10 Z');
+  });
+
+  it('rounds the coordinates to two decimals', () => {
+    expect(polygonPath([[1.23456, 2.5]])).toBe('M 1.23 2.5 Z');
+  });
+
+  it('returns an empty path for an empty ring', () => {
+    expect(polygonPath([])).toBe('');
   });
 });

@@ -1,11 +1,11 @@
 /**
  * Geometry helpers for the campus croquis.
  *
- * The artwork is an <img> that the browser letterboxes inside its own box
- * (`object-contain` plus a max-height), so a click on the padding is not a
- * click on the map and a percentage of the box is not a percentage of the
- * artwork. Every conversion between client pixels and artwork pixels goes
- * through the painted content box computed here.
+ * The artwork is an <svg> that the browser letterboxes inside its own box
+ * (`preserveAspectRatio="xMidYMid meet"` plus a max-height), so a click on
+ * the padding is not a click on the map and a percentage of the box is not a
+ * percentage of the artwork. Every conversion between client pixels and
+ * artwork pixels goes through the painted content box computed here.
  */
 
 /** Painted content box of an artwork centred inside its element box. */
@@ -197,21 +197,36 @@ export function pointInPolygon(point, polygon) {
 }
 
 /**
- * The zone whose polygon contains the point, or null when the tap landed on
+ * The shapes of a zone: every fragment of a construction the plan draws in
+ * pieces, or its polygon when it carries no fragments.
+ */
+export function zoneShapes(zone) {
+  const fragments = zone?.fragments;
+  if (fragments?.length) return fragments;
+  return zone?.polygon ? [zone.polygon] : [];
+}
+
+/**
+ * The zone whose shape contains the point, or null when the tap landed on
  * open ground; when zones overlap the smallest one wins, so a tap aimed at a
  * small building never resolves to the block around it.
+ *
+ * A construction the plan draws in pieces carries every piece as a fragment:
+ * a tap on the small wing of a building cut in half by its own label still
+ * resolves that building. A zone without fragments keeps its polygon.
  */
 export function zoneAtPoint(point, zones) {
   let match = null;
   let matchArea = Infinity;
 
   for (const zone of zones ?? []) {
-    if (!zone?.polygon) continue;
-    if (!pointInPolygon(point, zone.polygon)) continue;
-    const area = polygonArea(zone.polygon);
-    if (area < matchArea) {
-      match = zone;
-      matchArea = area;
+    for (const shape of zoneShapes(zone)) {
+      if (!pointInPolygon(point, shape)) continue;
+      const area = polygonArea(shape);
+      if (area < matchArea) {
+        match = zone;
+        matchArea = area;
+      }
     }
   }
   return match;
@@ -484,4 +499,140 @@ export function nextZoneInDirection(rows, zoneId, direction) {
   if (direction === 'down') return nearestInRow(list[rowIndex + 1], row[colIndex]);
   if (direction === 'up') return nearestInRow(list[rowIndex - 1], row[colIndex]);
   return null;
+}
+
+/* ───────────────────────── La escena: luz, alturas y relieve ───────────────────────── */
+
+/*
+ * El croquis es una planta: no tiene alturas. Lo que sí tiene es el uso de
+ * cada construcción en su propia leyenda, y el uso es lo que dice qué tan
+ * alto es un edificio: un bloque de aulas es bajo, un laboratorio o un
+ * taller es medio, un gimnasio o la biblioteca es alto.
+ *
+ * La luz es una sola para todo el campus: viene de arriba a la izquierda,
+ * así que el volumen se inclina hacia abajo a la derecha y su sombra cae
+ * hacia abajo a la derecha. Un relieve sólo se lee como relieve si todas las
+ * sombras están de acuerdo.
+ */
+
+/** La luz del campus: de arriba a la izquierda, unitaria. */
+export const LIGHT = { x: -Math.SQRT1_2, y: -Math.SQRT1_2 };
+
+/**
+ * Las alturas del relieve, en unidades del artwork (un píxel del plano de
+ * 700 x 647). La tabla vive aquí y en ningún otro lado.
+ */
+export const HEIGHT_TABLE = { low: 4, medium: 6, tall: 9 };
+
+/** La altura por omisión: lo que la leyenda no nombra es un volumen medio. */
+export const DEFAULT_HEIGHT = HEIGHT_TABLE.medium;
+
+/** La familia por omisión. */
+export const DEFAULT_FAMILY = 'medium';
+
+/**
+ * Las familias de altura y las palabras del plano que las nombran, en el
+ * orden en que ganan: alto vence a bajo, y bajo vence a medio. Así "Aulas y
+ * Taller de Dibujo" es un bloque de aulas (bajo) y "Centro de Información
+ * (Biblioteca)" es alto.
+ */
+const HEIGHT_RULES = [
+  ['tall', /\b(?:gimnasio|auditorio|biblioteca|consejo)\b/i],
+  ['tall', /centro de informaci[oó]n/i],
+  ['low', /\baulas?\b/i],
+  ['medium', /\blaboratorios?\b/i],
+  ['medium', /\blab\./i],
+  ['medium', /\btaller\b/i],
+  ['medium', /\bdepto?s?\b/i],
+  ['medium', /\balmac[eé]n\b/i],
+  ['medium', /\bc[aá]tedra\b/i],
+  ['medium', /\bsala\b/i],
+];
+
+/**
+ * La familia de altura de una zona, deducida del nombre que le dio la
+ * leyenda del plano; una zona que la leyenda no describe es media.
+ */
+export function heightCategory(zone) {
+  const name = String(zone?.name ?? zone?.label ?? '');
+  for (const [family, pattern] of HEIGHT_RULES) {
+    if (pattern.test(name)) return family;
+  }
+  return DEFAULT_FAMILY;
+}
+
+/**
+ * La altura de una zona, en unidades del artwork; una función pura del
+ * nombre que la leyenda del plano le dio.
+ */
+export function heightFor(zone) {
+  return HEIGHT_TABLE[heightCategory(zone)] ?? DEFAULT_HEIGHT;
+}
+
+/** La luz normalizada: cualquier luz sirve, pero manda su dirección. */
+function unitLight(light) {
+  const x = light?.x ?? LIGHT.x;
+  const y = light?.y ?? LIGHT.y;
+  const length = Math.hypot(x, y);
+  if (!(length > 0)) return LIGHT;
+  return { x: x / length, y: y / length };
+}
+
+/**
+ * La normal exterior de un lado del anillo: la de las dos perpendiculares
+ * que apunta lejos del centro de la figura.
+ */
+function outwardNormal(a, b, center) {
+  const ex = b[0] - a[0];
+  const ey = b[1] - a[1];
+  const nx = ey;
+  const ny = -ex;
+  const mx = (a[0] + b[0]) / 2 - center.x;
+  const my = (a[1] + b[1]) / 2 - center.y;
+  return nx * mx + ny * my >= 0 ? { x: nx, y: ny } : { x: -nx, y: -ny };
+}
+
+/**
+ * Extruye un anillo en un volumen bajo una luz: la cara de arriba es el
+ * anillo desplazado hacia la luz, las paredes son los cuadriláteros de los
+ * lados que dan la espalda a la luz (las que se ven en un relieve visto desde
+ * arriba) y la sombra es el anillo desplazado al revés, para pintarse debajo
+ * del volumen.
+ */
+export function extrudePolygon(points, height, light = LIGHT) {
+  const ring = points ?? [];
+  if (ring.length < MIN_POLYGON_VERTICES) return { top: [], sides: [], shadow: [] };
+
+  const { x: lx, y: ly } = unitLight(light);
+  const dx = lx * height;
+  const dy = ly * height;
+  const center = polygonCentroid(ring);
+
+  const sides = [];
+  for (let index = 0; index < ring.length; index += 1) {
+    const a = ring[index];
+    const b = ring[(index + 1) % ring.length];
+    const normal = outwardNormal(a, b, center);
+    if (normal.x * lx + normal.y * ly >= 0) continue;
+    sides.push([a, b, [b[0] + dx, b[1] + dy], [a[0] + dx, a[1] + dy]]);
+  }
+
+  return {
+    top: ring.map(([x, y]) => [x + dx, y + dy]),
+    sides,
+    shadow: ring.map(([x, y]) => [x - dx, y - dy]),
+  };
+}
+
+/** Un número con dos decimales: el DOM no necesita más precisión. */
+function round2(value) {
+  return Math.round(value * 100) / 100;
+}
+
+/** El camino de un anillo, en la forma que entiende el SVG. */
+export function polygonPath(points) {
+  const ring = points ?? [];
+  if (ring.length === 0) return '';
+  const point = ([x, y]) => `${round2(x)} ${round2(y)}`;
+  return `M ${ring.map(point).join(' L ')} Z`;
 }
