@@ -235,6 +235,21 @@ phase's. This phase's four work units are ITS review slices, and the branch need
 (stacked, one per work unit) before it is opened — a single PR would put 29 k lines in front of one
 reviewer. Opening the PRs is the user's decision, not the phase's.
 
+**L15 — 2026-10-24 — The chain is open.** The branch became twelve stacked PRs
+(`#1` … `#12`), each one a thematic slice and each one compared against the tip of the previous:
+`#1` the base and the addressable croquis, `#2` the schema and the domain rules, `#3` the HTTP
+API, `#4` the accessible dialog, `#5` the missing states and the phone, `#6` the 3D croquis, `#7`
+the app against the real server, `#8` the marker per zone and the CI, `#9` the screen-space
+relief, `#10` the surfaces and the motion system, `#11` the TypeScript migration, `#12` the vector
+scene. Every body states its boundaries, its dependencies, what it leaves out and the diagram of
+the chain. **No PR is a tracker:** the slices land one after another, and the CI runs from `#8` on
+because that is the commit that added the workflow.
+**What the CI caught on the way:** the `/health` test depended on the ORDER of the tests — the
+pool is built once and cached with the first `DATABASE_URL` it sees, so the test that only moved
+the variable passed locally and failed in the runner, where another test had already built the
+pool with the real URL. The probe is mocked now (as the sibling case already did), and the fix
+travels down the chain so every gate is green.
+
 **L10 — 2026-10-23 — T1 landed: the map is a scene.** The generator classifies the plan once and
 emits two things: `src/map/scene.ts` (the ground: three campus surfaces, twenty greens, the
 track, the court and seven brick lots — 32 shapes, 834 vertices) and `src/map/zones.ts` (the
