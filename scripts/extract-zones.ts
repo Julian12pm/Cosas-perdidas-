@@ -8,7 +8,7 @@
  * layer, and then binds the printed codes read off the plan to those boxes.
  *
  * Outputs:
- *   src/map/zones.js   - the catalogue (deterministic order)
+ *   src/map/zones.ts   - the catalogue (deterministic order)
  *   public/mapa-itm-dark.png - the interactive artwork: the same masks
  *                              remapped to the app's palette and cropped to
  *                              the campus (the legend column is cut away)
@@ -20,17 +20,18 @@
  * (declares 10), 20 internet modules (declares 14) and 1 athletics track. The
  * plan draws more symbols than its own legend counts.
  *
- * Run with: vp exec node scripts/extract-zones.mjs
+ * Run with: vp exec node scripts/extract-zones.ts
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { PNG } from 'pngjs';
+import type { Zone } from '../src/types.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MAP_PATH = resolve(ROOT, 'public/mapa-itm.png');
 const DARK_MAP_PATH = resolve(ROOT, 'public/mapa-itm-dark.png');
-const ZONES_OUT = resolve(ROOT, 'src/map/zones.js');
+const ZONES_OUT = resolve(ROOT, 'src/map/zones.ts');
 const DEBUG_OUT = resolve(ROOT, 'public/zones-debug.png');
 
 const MAP_WIDTH = 846;
@@ -110,7 +111,7 @@ const LEGEND = {
  * script cannot read text, so this is the hand-verified bridge between
  * a detected colour blob and its printed code.
  * ------------------------------------------------------------------ */
-const PRINTED_CODES = [
+const PRINTED_CODES: [string, number, number][] = [
   ['2K', 61, 56],
   ['2J', 103, 86],
   ['2G', 141, 112],
@@ -197,7 +198,7 @@ const UNIT_BANDS = {
  * printed one would contradict it: two legends, two truths. The generator
  * paints the box over with the ground of the page.
  */
-const DATOS_GENERALES_BOX = { x: 45, y: 515, width: 175, height: 95 };
+const DATOS_GENERALES_BOX: PixelBox = { x: 45, y: 515, width: 175, height: 95, area: 0 };
 
 /**
  * Regions of the raster that are map furniture, not campus content: the
@@ -234,23 +235,74 @@ const png = PNG.sync.read(readFileSync(MAP_PATH));
 if (png.width !== MAP_WIDTH || png.height !== MAP_HEIGHT) {
   throw new Error(`unexpected map size ${png.width}x${png.height}`);
 }
+
+/** Una máscara de píxeles: 1 donde el píxel es de la capa, 0 donde no. */
+type Mask = Uint8Array;
+
+/** Un píxel del plan, con sus coordenadas. */
+type Pixel = [number, number];
+
+/** Los tres canales de un píxel. */
+type Rgb = [number, number, number];
+
+/** Una caja en los píxeles del plan, con el área que cubre. */
+interface PixelBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  area: number;
+}
+
+/** Un componente: los píxeles que lo forman y sus límites. */
+interface Component {
+  pixels: Pixel[];
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+/** La zona que el generador escribe: la del catálogo, con el área de su caja. */
+interface GeneratedZone extends Omit<Zone, 'box' | 'polygon' | 'fragments'> {
+  box: PixelBox;
+  polygon: Pixel[];
+  fragments?: Pixel[][];
+}
+
+/** Una construcción del catálogo: su caja, su código y las piezas que la forman. */
+interface Building extends PixelBox {
+  index: number;
+  pixels: Pixel[];
+  dilated?: Pixel[];
+  code: string | null;
+  members: Blob[];
+}
+
+/** Una mancha de una capa: su caja, sus píxeles y el índice que la nombra. */
+interface Blob extends PixelBox {
+  index: number;
+  pixels: Pixel[];
+  dilated?: Pixel[];
+}
+
 const { width: W, height: H, data } = png;
-const at = (x, y) => (W * y + x) << 2;
-const rgb = (x, y) => {
+const at = (x: number, y: number) => (W * y + x) << 2;
+const rgb = (x: number, y: number): Rgb => {
   const i = at(x, y);
   return [data[i], data[i + 1], data[i + 2]];
 };
 
 // Orange building fill: the swatch of "52 CONSTRUCCIONES" (249,166,74).
-const isBuildingFill = (r, g, b) =>
+const isBuildingFill = (r: number, g: number, b: number) =>
   r >= 232 && g >= 148 && g <= 186 && b <= 98 && r - b >= 135 && g - b >= 52;
 
 // Tan running-track surface of the athletics oval: (208,171,100).
-const isTrackFill = (r, g, b) =>
+const isTrackFill = (r: number, g: number, b: number) =>
   r >= 196 && r <= 222 && g >= 158 && g <= 184 && b >= 88 && b <= 116 && r - b >= 70 && g - b >= 42;
 
 // Muted dark green of the "10 PUNTOS DE REUNIÓN" cross: ~(93,129,114).
-const isMeetingPoint = (r, g, b) =>
+const isMeetingPoint = (r: number, g: number, b: number) =>
   r >= 80 &&
   r <= 150 &&
   g >= 110 &&
@@ -263,11 +315,12 @@ const isMeetingPoint = (r, g, b) =>
 
 // Saturated green/teal fill of the "14 MÓDULOS DE INTERNET" squares: the
 // plain (0,163,80) blocks and the framed (89,169,136) cores both qualify.
-const isInternetModule = (r, g, b) => r <= 130 && g >= 120 && g <= 205 && g - r >= 33 && g - b >= 5;
+const isInternetModule = (r: number, g: number, b: number) =>
+  r <= 130 && g >= 120 && g <= 205 && g - r >= 33 && g - b >= 5;
 
 // Paving: the stipple of the parking lots plus the brick hatching used for
 // the eastern lots.
-const isPaving = (r, g, b) =>
+const isPaving = (r: number, g: number, b: number) =>
   (Math.abs(r - g) <= 14 && Math.abs(g - b) <= 16 && r >= 150 && r <= 248) ||
   (r >= 175 && r <= 235 && r - g >= 40 && r - g <= 95 && g - b >= 5 && g - b <= 55);
 
@@ -277,24 +330,25 @@ const isPaving = (r, g, b) =>
  * ------------------------------------------------------------------ */
 
 // The grey half of the paving: the street mesh and the stippled lots.
-const isPavingGrey = (r, g, b) =>
+const isPavingGrey = (r: number, g: number, b: number) =>
   Math.abs(r - g) <= 14 && Math.abs(g - b) <= 16 && r >= 150 && r <= 248;
 
 // The brick half of the paving: the eastern lots and the patios.
-const isPavingBrick = (r, g, b) =>
+const isPavingBrick = (r: number, g: number, b: number) =>
   r >= 175 && r <= 235 && r - g >= 40 && r - g <= 95 && g - b >= 5 && g - b <= 55;
 
 // Any grey linework of the plan, from the darkest street edge to the
 // softest hairline: the boundaries, the area outlines and the hatch.
-const isGreyLine = (r, g, b) =>
+const isGreyLine = (r: number, g: number, b: number) =>
   Math.abs(r - g) <= 14 && Math.abs(g - b) <= 16 && r >= 118 && r <= 248;
 
 // The black of the plan: the printed text, the labels and the drop shadow
 // the plan draws under every construction.
-const isInk = (r, g, b) => Math.max(r, g, b) < 125 && Math.max(r, g, b) - Math.min(r, g, b) < 45;
+const isInk = (r: number, g: number, b: number) =>
+  Math.max(r, g, b) < 125 && Math.max(r, g, b) - Math.min(r, g, b) < 45;
 
 // The lawns: the light green fields of the campus.
-const isLawnGreen = (r, g, b) =>
+const isLawnGreen = (r: number, g: number, b: number) =>
   r >= 175 &&
   r <= 235 &&
   g >= 205 &&
@@ -306,29 +360,30 @@ const isLawnGreen = (r, g, b) =>
 
 // The sports pitches: the saturated grass of the athletics field and of the
 // football pitch, plus the green strips that line the avenues.
-const isFieldGreen = (r, g, b) =>
+const isFieldGreen = (r: number, g: number, b: number) =>
   r >= 100 && r <= 180 && g >= 160 && g <= 225 && b <= 125 && g - r >= 35 && g - b >= 65;
 
 // The warm hatch of the plan: the brick of the eastern lots and patios, the
 // salmon frames of the internet modules and the magenta of a few symbols.
-const isWarmHatch = (r, g, b) =>
+const isWarmHatch = (r: number, g: number, b: number) =>
   r >= 140 && r <= 240 && r - g >= 38 && r - g <= 110 && g - b >= -90 && g - b <= 60;
 
 // The cyan of the plan: the turquoise courts and the blue cores of the
 // internet module symbols.
-const isCyanPaint = (r, g, b) => b >= 180 && b - r >= 40 && g >= 120 && g - b >= -40;
+const isCyanPaint = (r: number, g: number, b: number) =>
+  b >= 180 && b - r >= 40 && g >= 120 && g - b >= -40;
 
-const inExcluded = (x, y) =>
+const inExcluded = (x: number, y: number): boolean =>
   EXCLUDED_REGIONS.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
 
 /** True when the point falls inside a rectangle. */
-const inBox = (x, y, box) =>
+const inBox = (x: number, y: number, box: PixelBox): boolean =>
   x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height;
 
 /* ------------------------------------------------------------------ *
  * Connected components
  * ------------------------------------------------------------------ */
-function dilate(mask, radius) {
+function dilate(mask: Mask, radius: number): Mask {
   const out = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -346,18 +401,20 @@ function dilate(mask, radius) {
   return out;
 }
 
-function components(mask) {
+function components(mask: Mask): Component[] {
   const seen = new Uint8Array(W * H);
-  const found = [];
+  const found: Component[] = [];
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
       if (!mask[i] || seen[i]) continue;
-      const stack = [[x, y]];
+      const stack: Pixel[] = [[x, y]];
       seen[i] = 1;
-      const pixels = [];
+      const pixels: Pixel[] = [];
       while (stack.length) {
-        const [cx, cy] = stack.pop();
+        const popped = stack.pop();
+        if (!popped) break;
+        const [cx, cy] = popped;
         pixels.push([cx, cy]);
         for (let dy = -1; dy <= 1; dy++) {
           for (let dx = -1; dx <= 1; dx++) {
@@ -387,7 +444,7 @@ function components(mask) {
 }
 
 /** Box of the original (undilated) pixels of a component. */
-function boxOf(component, mask) {
+function boxOf(component: Component, mask: Mask): PixelBox | null {
   let minX = Infinity;
   let maxX = -1;
   let minY = Infinity;
@@ -418,7 +475,7 @@ function boxOf(component, mask) {
  * Merge boxes that overlap in both axes: the frame of a symbol and the green
  * core inside it describe the same point of the plan.
  */
-function mergeOverlapping(boxes) {
+function mergeOverlapping(boxes: PixelBox[]): PixelBox[] {
   const list = boxes.map((b) => ({ ...b }));
   let merged = true;
   while (merged) {
@@ -446,7 +503,7 @@ function mergeOverlapping(boxes) {
   return list;
 }
 
-const boxOverlap = (a, b) => {
+const boxOverlap = (a: PixelBox, b: PixelBox): number => {
   const w = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
   const h = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
   return w > 0 && h > 0 ? w * h : 0;
@@ -466,7 +523,7 @@ for (let y = 0; y < H; y++) {
 }
 // Dilating by one pixel bridges the one-pixel gaps left by the printed code
 // labels without fusing neighbouring constructions.
-const buildingBlobs = components(dilate(buildingMask, 1))
+const buildingBlobs: Blob[] = components(dilate(buildingMask, 1))
   .map((c) => {
     const box = boxOf(c, buildingMask);
     if (!box) return null;
@@ -481,7 +538,8 @@ const buildingBlobs = components(dilate(buildingMask, 1))
       dilated: c.pixels,
     };
   })
-  .filter((b) => b && b.area >= 15 && b.width >= 4 && b.height >= 3)
+  .filter((b): b is NonNullable<typeof b> => Boolean(b))
+  .filter((b) => b.area >= 15 && b.width >= 4 && b.height >= 3)
   .filter((b) => !inExcluded(b.x, b.y) && !inExcluded(b.x + b.width - 1, b.y + b.height - 1))
   .filter((b) => b.x < 700)
   .map((b, index) => ({ ...b, index }));
@@ -489,9 +547,9 @@ const buildingBlobs = components(dilate(buildingMask, 1))
 // The printed code of a building is the anchor that binds it: a blob that
 // carries one is a complete construction, a blob without one is a fragment of
 // the labelled building it touches.
-const codeOfBlob = new Map();
-const blobOfCode = new Map();
-const unplacedAnchors = [];
+const codeOfBlob = new Map<number, string>();
+const blobOfCode = new Map<string, number>();
+const unplacedAnchors: [string, number, number][] = [];
 for (const [code, ax, ay] of PRINTED_CODES) {
   const blob = buildingBlobs.find(
     (b) => ax >= b.x && ax < b.x + b.width && ay >= b.y && ay < b.y + b.height,
@@ -506,16 +564,22 @@ for (const [code, ax, ay] of PRINTED_CODES) {
 }
 
 // Fragments join the labelled construction they belong to.
-const groups = new Map();
+const groups = new Map<number, Blob[]>();
 for (const blob of buildingBlobs) {
   if (codeOfBlob.has(blob.index)) groups.set(blob.index, [blob]);
 }
-const groupBox = (members) => {
+const groupBox = (members: Blob[]): PixelBox => {
   const x = Math.min(...members.map((m) => m.x));
   const y = Math.min(...members.map((m) => m.y));
   const right = Math.max(...members.map((m) => m.x + m.width));
   const bottom = Math.max(...members.map((m) => m.y + m.height));
-  return { x, y, width: right - x, height: bottom - y };
+  return {
+    x,
+    y,
+    width: right - x,
+    height: bottom - y,
+    area: members.reduce((total, m) => total + m.area, 0),
+  };
 };
 for (const fragment of BUILDING_FRAGMENTS) {
   const [fx, fy] = fragment.at;
@@ -537,13 +601,15 @@ for (const blob of buildingBlobs) {
   groups.set(blob.index, [blob]);
 }
 
-const buildingBoxes = [...groups.values()].map((members) => {
+const buildingBoxes: Building[] = [...groups.values()].map((members) => {
   const box = groupBox(members);
   const coded = members.find((m) => codeOfBlob.has(m.index));
   return {
     ...box,
+    index: coded?.index ?? members[0]?.index ?? 0,
+    pixels: members.flatMap((m) => m.pixels),
     area: members.reduce((sum, m) => sum + m.area, 0),
-    code: coded ? codeOfBlob.get(coded.index) : null,
+    code: coded ? (codeOfBlob.get(coded.index) ?? null) : null,
     // The members carry their pixels: the dark artwork paints the two safe
     // points with the brand amber and needs to know exactly which pixels
     // belong to them.
@@ -595,7 +661,7 @@ const buildingBoxes = [...groups.values()].map((members) => {
 const SIMPLIFY_TOLERANCE = 1;
 
 /** The signed area of a ring; the outline of a shape runs clockwise. */
-function ringArea(ring) {
+function ringArea(ring: [number, number][]): number {
   let sum = 0;
   for (let index = 0; index < ring.length; index += 1) {
     const current = ring[index];
@@ -610,9 +676,9 @@ function ringArea(ring) {
  * It is what takes the one pixel of dilation back, so the outline lands
  * on the orange and not on the rim the scan paints around it.
  */
-function erodePixels(pixels) {
+function erodePixels(pixels: Pixel[]): Pixel[] {
   const inside = new Set(pixels.map(([x, y]) => `${x},${y}`));
-  const out = [];
+  const out: Pixel[] = [];
   for (const [x, y] of pixels) {
     let solid = true;
     for (let dy = -1; dy <= 1 && solid; dy++) {
@@ -629,7 +695,7 @@ function erodePixels(pixels) {
 }
 
 /** The pixels the outline of a shape closes around: its holes. */
-function fillHoles(pixels) {
+function fillHoles(pixels: Pixel[]): Pixel[] {
   if (!pixels.length) return pixels;
   const inside = new Set(pixels.map(([x, y]) => `${x},${y}`));
   let minX = Infinity;
@@ -642,12 +708,14 @@ function fillHoles(pixels) {
     if (y < minY) minY = y;
     if (y > maxY) maxY = y;
   }
-  const outside = new Set();
-  const stack = [];
+  const outside = new Set<string>();
+  const stack: Pixel[] = [];
   for (let x = minX; x <= maxX; x++) stack.push([x, minY], [x, maxY]);
   for (let y = minY; y <= maxY; y++) stack.push([minX, y], [maxX, y]);
   while (stack.length) {
-    const [x, y] = stack.pop();
+    const popped = stack.pop();
+    if (!popped) break;
+    const [x, y] = popped;
     if (x < minX || y < minY || x > maxX || y > maxY) continue;
     const key = `${x},${y}`;
     if (outside.has(key) || inside.has(key)) continue;
@@ -665,17 +733,21 @@ function fillHoles(pixels) {
 }
 
 /** The connected pieces of a set of pixels, four neighbours each. */
-function connectedPieces(pixels) {
-  const remaining = new Map();
+function connectedPieces(pixels: Pixel[]): Pixel[][] {
+  const remaining = new Map<string, Pixel>();
   for (const [x, y] of pixels) remaining.set(`${x},${y}`, [x, y]);
-  const pieces = [];
+  const pieces: Pixel[][] = [];
   while (remaining.size) {
-    const [startKey, start] = remaining.entries().next().value;
+    const entry = remaining.entries().next().value;
+    if (!entry) break;
+    const [startKey, start] = entry;
     remaining.delete(startKey);
-    const piece = [start];
-    const stack = [start];
+    const piece: Pixel[] = [start];
+    const stack: Pixel[] = [start];
     while (stack.length) {
-      const [x, y] = stack.pop();
+      const popped = stack.pop();
+      if (!popped) break;
+      const [x, y] = popped;
       for (const [dx, dy] of [
         [1, 0],
         [-1, 0],
@@ -702,12 +774,12 @@ function connectedPieces(pixels) {
  * so the outline of a shape runs clockwise and its holes the other
  * way.
  */
-function traceOutline(pixels) {
+function traceOutline(pixels: Pixel[]): Pixel[][] {
   const inside = new Set(pixels.map(([x, y]) => `${x},${y}`));
-  const has = (x, y) => inside.has(`${x},${y}`);
+  const has = (x: number, y: number) => inside.has(`${x},${y}`);
 
-  const outgoing = new Map();
-  const link = (fromX, fromY, toX, toY) => {
+  const outgoing = new Map<string, number[][]>();
+  const link = (fromX: number, fromY: number, toX: number, toY: number) => {
     const key = `${fromX},${fromY}`;
     const edge = [toX, toY, toX - fromX, toY - fromY];
     const list = outgoing.get(key);
@@ -722,7 +794,7 @@ function traceOutline(pixels) {
   }
 
   const pending = new Map([...outgoing].map(([key, list]) => [key, [...list]]));
-  const takeEdge = (key, dx, dy) => {
+  const takeEdge = (key: string, dx: number, dy: number) => {
     const list = pending.get(key);
     if (!list?.length) return null;
     // The interior hugs the right: the sharpest turn to the right comes
@@ -738,13 +810,14 @@ function traceOutline(pixels) {
     return null;
   };
 
-  const rings = [];
+  const rings: Pixel[][] = [];
   for (const startKey of outgoing.keys()) {
     while (pending.get(startKey)?.length) {
-      const first = pending.get(startKey).shift();
-      const ring = [];
+      const first = pending.get(startKey)?.shift();
+      if (!first) break;
+      const ring: Pixel[] = [];
       let key = startKey;
-      let edge = first;
+      let edge: number[] = first;
       for (;;) {
         const [atX, atY] = key.split(',');
         ring.push([Number(atX), Number(atY)]);
@@ -761,7 +834,7 @@ function traceOutline(pixels) {
 }
 
 /** The squared distance of a point to a segment. */
-function segmentDistance(point, start, end) {
+function segmentDistance(point: Pixel, start: Pixel, end: Pixel): number {
   const dx = end[0] - start[0];
   const dy = end[1] - start[1];
   const length = dx * dx + dy * dy;
@@ -776,15 +849,17 @@ function segmentDistance(point, start, end) {
 }
 
 /** The Douglas-Peucker simplification of an open chain of points. */
-function simplifyChain(points, tolerance) {
+function simplifyChain(points: Pixel[], tolerance: number): Pixel[] {
   if (points.length < 3) return [...points];
   const limit = tolerance * tolerance;
   const keep = Array.from({ length: points.length }, () => false);
   keep[0] = true;
   keep[points.length - 1] = true;
-  const stack = [[0, points.length - 1]];
+  const stack: [number, number][] = [[0, points.length - 1]];
   while (stack.length) {
-    const [first, last] = stack.pop();
+    const popped = stack.pop();
+    if (!popped) break;
+    const [first, last] = popped;
     let worst = 0;
     let index = -1;
     for (let i = first + 1; i < last; i++) {
@@ -808,7 +883,7 @@ function simplifyChain(points, tolerance) {
  * that is the furthest away from it: the ends of a chain drag the
  * shape towards the straight line that joins them.
  */
-function simplifyRing(ring, tolerance) {
+function simplifyRing(ring: Pixel[], tolerance: number): Pixel[] {
   if (ring.length < 4) return [...ring];
   let far = 1;
   let best = -1;
@@ -840,13 +915,13 @@ function simplifyRing(ring, tolerance) {
  */
 const FRAGMENT_SHARE = 0.1;
 
-function footprintOf(host) {
-  const rings = [];
+function footprintOf(host: Building): Pixel[][] {
+  const rings: { ring: Pixel[]; area: number }[] = [];
   for (const member of host.members) {
     // The holes of the component are the printed codes, and the
     // footprint ignores them. The erosion takes the dilation back, so
     // the outline lands on the orange fill and not on its rim.
-    const silhouette = erodePixels(fillHoles(member.dilated));
+    const silhouette = erodePixels(fillHoles(member.dilated ?? []));
     for (const piece of connectedPieces(silhouette)) {
       for (const ring of traceOutline(piece)) {
         const area = Math.abs(ringArea(ring));
@@ -871,15 +946,15 @@ for (let y = 0; y < H; y++) {
 }
 const meetingBoxes = components(dilate(meetingMask, 2))
   .map((c) => boxOf(c, meetingMask))
-  .filter(
-    (b) => b && b.area >= 8 && b.width >= 5 && b.width <= 16 && b.height >= 5 && b.height <= 16,
-  )
+  .filter((b): b is PixelBox => Boolean(b))
+  .filter((b) => b.area >= 8 && b.width >= 5 && b.width <= 16 && b.height >= 5 && b.height <= 16)
   .filter((b) => !inExcluded(b.x, b.y));
 
 // --- internet modules: saturated green squares ------------------------
 // The lawn and the sports pitches are large green areas, so they are detected
 // first and excluded: only small isolated green blobs are module symbols.
-const looseGreen = (r, g, b) => r <= 150 && g >= 125 && g <= 215 && g - r >= 18 && g - b >= -5;
+const looseGreen = (r: number, g: number, b: number) =>
+  r <= 150 && g >= 125 && g <= 215 && g - r >= 18 && g - b >= -5;
 const looseMask = new Uint8Array(W * H);
 for (let y = 0; y < H; y++) {
   for (let x = 0; x < W; x++) {
@@ -889,8 +964,9 @@ for (let y = 0; y < H; y++) {
 }
 const greenFields = components(dilate(looseMask, 4))
   .map((c) => boxOf(c, looseMask))
-  .filter((b) => b && b.area >= 700);
-const inGreenField = (x, y) =>
+  .filter((b): b is PixelBox => Boolean(b))
+  .filter((b) => b.area >= 700);
+const inGreenField = (x: number, y: number): boolean =>
   greenFields.some(
     (f) => x >= f.x - 2 && x <= f.x + f.width + 1 && y >= f.y - 2 && y <= f.y + f.height + 1,
   );
@@ -915,12 +991,14 @@ for (let y = 0; y < H; y++) {
 }
 const moduleCores = components(dilate(moduleMask, 2))
   .map((c) => boxOf(c, moduleMask))
-  .filter((b) => b && b.area >= 2 && b.width <= 13 && b.height <= 10)
+  .filter((b): b is PixelBox => Boolean(b))
+  .filter((b) => b.area >= 2 && b.width <= 13 && b.height <= 10)
   .filter((b) => !inExcluded(b.x, b.y))
   .filter((b) => !inGreenField(b.x + b.width / 2, b.y + b.height / 2));
 const moduleFrames = components(dilate(frameMask, 1))
   .map((c) => boxOf(c, frameMask))
-  .filter((b) => b && b.area >= 3 && b.area <= 70 && b.width <= 14 && b.height <= 11)
+  .filter((b): b is PixelBox => Boolean(b))
+  .filter((b) => b.area >= 3 && b.area <= 70 && b.width <= 14 && b.height <= 11)
   .filter((b) => !inExcluded(b.x, b.y))
   .filter((b) => !inGreenField(b.x + b.width / 2, b.y + b.height / 2))
   .filter((b) => {
@@ -970,7 +1048,7 @@ for (let y = 0; y < H; y++) {
 // region: the patch is found, the region only says where to look.
 const brickPatches = components(brickPavingMask).filter((patch) => patch.pixels.length >= 20);
 
-const boxOfPixels = (pixels) => {
+const boxOfPixels = (pixels: Pixel[]): PixelBox | null => {
   if (!pixels.length) return null;
   const xs = pixels.map((p) => p[0]);
   const ys = pixels.map((p) => p[1]);
@@ -978,11 +1056,17 @@ const boxOfPixels = (pixels) => {
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
-  return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX + 1,
+    height: maxY - minY + 1,
+    area: pixels.length,
+  };
 };
 
 const parkingBoxes = PARKING_REGIONS.map((region) => {
-  const inside = (x, y) =>
+  const inside = (x: number, y: number) =>
     x >= region.x && x < region.x + region.width && y >= region.y && y < region.y + region.height;
 
   let grey = 0;
@@ -999,7 +1083,7 @@ const parkingBoxes = PARKING_REGIONS.map((region) => {
   // leak: when the lot is drawn with brick, the lot is the biggest patch of
   // brick inside the region and nothing else is measured.
   if (brick > grey) {
-    let best = [];
+    let best: Pixel[] = [];
     for (const patch of brickPatches) {
       const within = patch.pixels.filter(([x, y]) => inside(x, y));
       if (within.length > best.length) best = within;
@@ -1099,7 +1183,7 @@ const LAYER_NAMES = Object.keys(DARK_PALETTE);
 const LAYER_INDEX = new Map(LAYER_NAMES.map((name, index) => [name, index]));
 
 /** A summed-area table of a mask, so the count inside a window is O(1). */
-function summedArea(mask) {
+function summedArea(mask: Mask): Int32Array {
   const table = new Int32Array((W + 1) * (H + 1));
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -1114,7 +1198,7 @@ function summedArea(mask) {
 }
 
 /** The fraction of a mask's pixels inside the window around (x, y). */
-function density(table, x, y, radius) {
+function density(table: Int32Array, x: number, y: number, radius: number): number {
   const x0 = Math.max(0, x - radius);
   const y0 = Math.max(0, y - radius);
   const x1 = Math.min(W - 1, x + radius);
@@ -1158,7 +1242,7 @@ for (const code of ['A', 'AF']) {
 // the orange dilated by one pixel, so the anti-aliased rim of the orange
 // does not open a leak to the label.
 const outsideMask = new Uint8Array(W * H);
-const flood = [];
+const flood: Pixel[] = [];
 const orangeWall = dilate(buildingMask, 1);
 for (let x = 0; x < W; x++) {
   flood.push([x, 0], [x, H - 1]);
@@ -1167,7 +1251,9 @@ for (let y = 0; y < H; y++) {
   flood.push([0, y], [W - 1, y]);
 }
 while (flood.length) {
-  const [x, y] = flood.pop();
+  const popped = flood.pop();
+  if (!popped) break;
+  const [x, y] = popped;
   if (x < 0 || y < 0 || x >= W || y >= H) continue;
   const i = y * W + x;
   if (outsideMask[i] || orangeWall[i]) continue;
@@ -1193,7 +1279,7 @@ for (let y = 0; y < H; y++) {
   }
 }
 /** The length of the ink run through (x, y), capped at the limit. */
-const inkRun = (x, y, dx, dy, limit) => {
+const inkRun = (x: number, y: number, dx: number, dy: number, limit: number): number => {
   let n = 1;
   let cx = x + dx;
   let cy = y + dy;
@@ -1261,7 +1347,8 @@ for (let y = 0; y < H; y++) {
     // contradice con él. El generador lo tapa con el fondo de la página.
     if (inBox(x, y, DATOS_GENERALES_BOX)) layer = 'paper';
 
-    darkLayer[i] = LAYER_INDEX.get(layer);
+    const index = LAYER_INDEX.get(layer);
+    if (index !== undefined) darkLayer[i] = index;
     layerCounts.set(layer, (layerCounts.get(layer) ?? 0) + 1);
   }
 }
@@ -1276,7 +1363,7 @@ const DARK_RGB = Object.fromEntries(
 const dark = new PNG({ width: CROP_WIDTH, height: MAP_HEIGHT });
 for (let y = 0; y < MAP_HEIGHT; y++) {
   for (let x = 0; x < CROP_WIDTH; x++) {
-    const [r, g, b] = DARK_RGB[LAYER_NAMES[darkLayer[y * W + x]]];
+    const [r, g, b] = DARK_RGB[LAYER_NAMES[darkLayer[y * W + x]]] ?? [0, 0, 0];
     const i = (y * CROP_WIDTH + x) * 4;
     dark.data[i] = r;
     dark.data[i + 1] = g;
@@ -1292,7 +1379,7 @@ const units = {
   posgrado: 'posgrado',
 };
 
-function unitOf(box) {
+function unitOf(box: PixelBox): string {
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
   const mm = UNIT_BANDS['metal-mecanica'];
@@ -1302,11 +1389,11 @@ function unitOf(box) {
   return units.central;
 }
 
-const zones = [];
-const usedBoxes = new Set();
+const zones: GeneratedZone[] = [];
+const usedBoxes = new Set<PixelBox>();
 
 /** The corners of a box, the shape a zone has when nothing was traced. */
-const boxRing = (box) => [
+const boxRing = (box: PixelBox): Pixel[] => [
   [box.x, box.y],
   [box.x + box.width, box.y],
   [box.x + box.width, box.y + box.height],
@@ -1316,7 +1403,7 @@ const boxRing = (box) => [
 for (const [code, host] of bound) {
   usedBoxes.add(host);
   const unit = unitOf(host);
-  const name = LEGEND[code] ?? `Edificio ${code}`;
+  const name = LEGEND[code as keyof typeof LEGEND] ?? `Edificio ${code}`;
   // safePoint: the hand-over points of the product spec ("la Biblioteca o la
   // Jefatura"). The official plan never prints the word "Biblioteca", but its
   // legend names AF as the "Centro de Información" — which is the campus
@@ -1335,7 +1422,13 @@ for (const [code, host] of bound) {
     kind: 'building',
     safePoint,
     label: `${code} · ${name}`,
-    box: { x: host.x, y: host.y, width: host.width, height: host.height },
+    box: {
+      x: host.x,
+      y: host.y,
+      width: host.width,
+      height: host.height,
+      area: host.area ?? 0,
+    },
     polygon: fragments[0] ?? boxRing(host),
     fragments,
   });
@@ -1354,7 +1447,13 @@ unknownBuildings.forEach((host, index) => {
     kind: 'building',
     safePoint: false,
     label: 'Edificio sin código legible',
-    box: { x: host.x, y: host.y, width: host.width, height: host.height },
+    box: {
+      x: host.x,
+      y: host.y,
+      width: host.width,
+      height: host.height,
+      area: host.area ?? 0,
+    },
     polygon: fragments[0] ?? boxRing(host),
     fragments,
   });
@@ -1371,8 +1470,14 @@ meetingSorted.forEach((box, index) => {
     kind: 'meeting_point',
     safePoint: false,
     label: `Punto de reunión ${index + 1}`,
-    box: { x: box.x, y: box.y, width: box.width, height: box.height },
-    polygon: boxRing(box),
+    box: {
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      area: box.area ?? 0,
+    },
+    polygon: boxRing(box as PixelBox),
   });
 });
 
@@ -1386,7 +1491,13 @@ moduleSorted.forEach((box, index) => {
     kind: 'internet_module',
     safePoint: false,
     label: `Módulo de internet ${index + 1}`,
-    box: { x: box.x, y: box.y, width: box.width, height: box.height },
+    box: {
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      area: box.area ?? 0,
+    },
     polygon: boxRing(box),
   });
 });
@@ -1400,8 +1511,8 @@ for (const lot of parkingBoxes) {
     kind: 'parking',
     safePoint: false,
     label: `Estacionamiento ${lot.code}`,
-    box: lot.box,
-    polygon: boxRing(lot.box),
+    box: lot.box as PixelBox,
+    polygon: boxRing(lot.box as PixelBox),
   });
 }
 
@@ -1410,6 +1521,7 @@ for (const lot of parkingBoxes) {
 // puede pintar una zona plana con la caja, porque borraría el pasto de
 // dentro. La pista la deja el raster, que es quien dibuja el óvalo.
 for (const [index, box] of trackBoxes.entries()) {
+  if (!box) continue;
   zones.push({
     id: `track-${index + 1}`,
     code: 'PISTA DE ATLETISMO',
@@ -1418,7 +1530,13 @@ for (const [index, box] of trackBoxes.entries()) {
     kind: 'track',
     safePoint: false,
     label: 'Pista de Atletismo',
-    box: { x: box.x, y: box.y, width: box.width, height: box.height },
+    box: {
+      x: box.x,
+      y: box.y,
+      width: box.width,
+      height: box.height,
+      area: box.area ?? 0,
+    },
     polygon: boxRing(box),
   });
 }
@@ -1428,8 +1546,19 @@ const uncertainCodes = [
   ...zones.filter((z) => z.kind === 'building' && z.code === null).map((z) => z.id),
 ];
 
-const KIND_ORDER = { building: 0, parking: 1, meeting_point: 2, internet_module: 3, track: 4 };
-const UNIT_ORDER = { 'metal-mecanica': 0, central: 1, posgrado: 2, campus: 3 };
+const KIND_ORDER: Record<string, number> = {
+  building: 0,
+  parking: 1,
+  meeting_point: 2,
+  internet_module: 3,
+  track: 4,
+};
+const UNIT_ORDER: Record<string, number> = {
+  'metal-mecanica': 0,
+  central: 1,
+  posgrado: 2,
+  campus: 3,
+};
 zones.sort(
   (a, b) =>
     UNIT_ORDER[a.unit] - UNIT_ORDER[b.unit] ||
@@ -1439,7 +1568,7 @@ zones.sort(
     a.id.localeCompare(b.id),
 );
 
-function slug(code) {
+function slug(code: string): string {
   return code
     .toLowerCase()
     .replace(/ñ/g, 'ny')
@@ -1449,15 +1578,17 @@ function slug(code) {
 }
 
 /* ------------------------------------------------------------------ *
- * Emit src/map/zones.js
+ * Emit src/map/zones.ts
  * ------------------------------------------------------------------ */
-const quote = (value) => `'${String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+const quote = (value: unknown): string =>
+  `'${String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 
 /** A ring of the catalogue: the corners of a shape, in the units of the plan. */
-const ringLiteral = (ring) => `[${ring.map(([x, y]) => `[${x}, ${y}]`).join(', ')}]`;
+const ringLiteral = (ring: Pixel[]): string =>
+  `[${ring.map(([x, y]) => `[${x}, ${y}]`).join(', ')}]`;
 
-const zoneLiteral = (zone) => {
-  const { x, y, width, height } = zone.box;
+const zoneLiteral = (zone: GeneratedZone): string => {
+  const { x, y, width, height } = zone.box ?? { x: 0, y: 0, width: 0, height: 0 };
   const lines = [
     '  {',
     `    id: ${quote(zone.id)},`,
@@ -1479,31 +1610,37 @@ const zoneLiteral = (zone) => {
   return lines.join('\n');
 };
 
-const zonesJs = `// Generated by scripts/extract-zones.mjs from public/mapa-itm.png — do not edit by hand.
+const zonesTs = `// Generated by scripts/extract-zones.ts from public/mapa-itm.png — do not edit by hand.
 //
 // The interactive artwork is the DARK CROP of the official "PLANO GENERAL
 // CAMPUS ITM N°1": public/mapa-itm-dark.png (${CROP_WIDTH} x ${MAP_HEIGHT} px), the plan
 // remapped to the app's palette with its legend column, its title card and
 // its crest cut away. The crop starts at x = 0, so the origin does not move
 // and every zone stays in the coordinate space of the original plan.
+//
+// The catalogue is typed: the annotation checks the DATA (a zone without a
+// box, or with a polygon of the wrong shape, does not compile) instead of
+// merely describing it.
 
-export const MAP_IMAGE = { src: '/mapa-itm-dark.png', width: ${CROP_WIDTH}, height: ${MAP_HEIGHT} };
+import type { MapImage, Zone } from '../types.ts';
 
-export const ZONES = [
+export const MAP_IMAGE: MapImage = { src: '/mapa-itm-dark.png', width: ${CROP_WIDTH}, height: ${MAP_HEIGHT} };
+
+export const ZONES: Zone[] = [
 ${zones.map(zoneLiteral).join('\n')}
 ];
 
-export const ZONE_BY_ID = new Map(ZONES.map((zone) => [zone.id, zone]));
+export const ZONE_BY_ID: Map<string, Zone> = new Map(ZONES.map((zone) => [zone.id, zone]));
 
-export const UNCERTAIN_CODES = [${uncertainCodes.map((code) => quote(code)).join(', ')}];
+export const UNCERTAIN_CODES: string[] = [${uncertainCodes.map((code) => quote(code)).join(', ')}];
 `;
 
-writeFileSync(ZONES_OUT, zonesJs);
+writeFileSync(ZONES_OUT, zonesTs);
 
 /* ------------------------------------------------------------------ *
  * Emit public/zones-debug.png
  * ------------------------------------------------------------------ */
-const FONT = {
+const FONT: Record<string, string> = {
   A: '111101111101101',
   B: '110101110101110',
   C: '011100100100011',
@@ -1554,7 +1691,7 @@ for (let i = 0; i < W * H; i++) {
   debug.data[i * 4 + 2] = data[i * 4 + 2];
   debug.data[i * 4 + 3] = 255;
 }
-const setPixel = (x, y, r, g, b) => {
+const setPixel = (x: number, y: number, r: number, g: number, b: number): void => {
   if (x < 0 || y < 0 || x >= W || y >= H) return;
   const i = at(x, y);
   debug.data[i] = r;
@@ -1568,7 +1705,7 @@ const COLORS = {
   internet_module: [0, 150, 60],
   track: [230, 120, 0],
 };
-const drawRect = (box, color) => {
+const drawRect = (box: PixelBox, color: number[]): void => {
   const [r, g, b] = color;
   for (let x = box.x; x < box.x + box.width; x++) {
     setPixel(x, box.y, r, g, b);
@@ -1579,10 +1716,10 @@ const drawRect = (box, color) => {
     setPixel(box.x + box.width - 1, y, r, g, b);
   }
 };
-const drawText = (text, x0, y0) => {
+const drawText = (text: string, x0: number, y0: number): number => {
   let cx = x0;
   for (const raw of text.toUpperCase().replace(/Ñ/g, 'N~')) {
-    const glyph = FONT[raw] ?? FONT[' '];
+    const glyph = FONT[raw] ?? FONT[' '] ?? '';
     for (let row = 0; row < GLYPH_H; row++) {
       for (let col = 0; col < GLYPH_W; col++) {
         if (glyph[row * GLYPH_W + col] === '1') setPixel(cx + col, y0 + row, 0, 0, 0);
@@ -1615,7 +1752,7 @@ writeFileSync(DEBUG_OUT, PNG.sync.write(debug));
 /* ------------------------------------------------------------------ *
  * Report
  * ------------------------------------------------------------------ */
-const count = (kind) => zones.filter((z) => z.kind === kind).length;
+const count = (kind: string): number => zones.filter((z) => z.kind === kind).length;
 const report = {
   building: count('building'),
   parking: count('parking'),
@@ -1623,7 +1760,7 @@ const report = {
   internet_module: count('internet_module'),
   track: count('track'),
 };
-console.log('zone catalogue written to src/map/zones.js');
+console.log('zone catalogue written to src/map/zones.ts');
 console.log('debug overlay written to public/zones-debug.png');
 console.log('dark artwork written to public/mapa-itm-dark.png');
 console.log('per-layer counts:', JSON.stringify(report));
@@ -1646,7 +1783,7 @@ console.log(
     ? fragmented
         .map(
           (zone) =>
-            `${zone.code ?? zone.id}=${zone.fragments.length}[${zone.fragments
+            `${zone.code ?? zone.id}=${(zone.fragments ?? []).length}[${(zone.fragments ?? [])
               .map((ring) => Math.round(Math.abs(ringArea(ring))))
               .join(',')}]`,
         )

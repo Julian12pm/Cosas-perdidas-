@@ -5,6 +5,7 @@
  * gancho para que una prueba pueda preguntar en qué estado está la pantalla.
  */
 
+import type { ReactNode } from 'react';
 import { BoxIcon } from '@solar-icons/react/bold/box';
 import { DangerTriangleIcon } from '@solar-icons/react/bold/danger-triangle';
 import { LoaderIcon } from '@solar-icons/react/bold/loader';
@@ -15,8 +16,23 @@ const PANEL = 'surface-panel p-5 sm:p-6';
 /** El panel de un estado que vive dentro de otra pieza: el mapa, el buscador. */
 const PANEL_COMPACT = 'surface-panel p-3';
 
+/** La acción de un estado vacío: qué hace y cómo se llama. */
+interface StateAction {
+  label: string;
+  onClick: () => void;
+}
+
 /** El cuerpo del panel: icono, título, texto y, cuando hace falta, una acción. */
-function StateBody({ icon, title, description, action, tone = 'muted' }) {
+interface StateBodyProps {
+  icon: ReactNode;
+  title: string;
+  description?: string;
+  action?: StateAction | null;
+  tone?: 'muted' | 'danger';
+}
+
+/** El cuerpo del panel: icono, título, texto y, cuando hace falta, una acción. */
+function StateBody({ icon, title, description, action, tone = 'muted' }: StateBodyProps) {
   return (
     <div className="flex flex-col items-center gap-2 text-center">
       <span
@@ -44,7 +60,17 @@ function StateBody({ icon, title, description, action, tone = 'muted' }) {
 }
 
 /** La pantalla está cambiando: se anuncia, no se adivina. */
-export function LoadingState({ title, description, compact = false, testId = 'state-loading' }) {
+export function LoadingState({
+  title,
+  description,
+  compact = false,
+  testId = 'state-loading',
+}: {
+  title: string;
+  description?: string;
+  compact?: boolean;
+  testId?: string;
+}) {
   return (
     <div
       data-testid={testId}
@@ -68,6 +94,12 @@ export function EmptyState({
   action,
   compact = false,
   testId = 'state-empty',
+}: {
+  title: string;
+  description?: string;
+  action?: StateAction | null;
+  compact?: boolean;
+  testId?: string;
 }) {
   return (
     <div data-testid={testId} className={compact ? PANEL_COMPACT : PANEL}>
@@ -88,6 +120,12 @@ export function ErrorState({
   onRetry,
   compact = false,
   testId = 'state-error',
+}: {
+  title: string;
+  description?: string;
+  onRetry?: () => void;
+  compact?: boolean;
+  testId?: string;
 }) {
   return (
     <div data-testid={testId} role="alert" className={compact ? PANEL_COMPACT : PANEL}>

@@ -3,7 +3,8 @@ import { ArrowRightUpIcon } from '@solar-icons/react/bold/arrow-right-up';
 import { Buildings2Icon } from '@solar-icons/react/bold/buildings-2';
 import { MagnifierIcon } from '@solar-icons/react/bold/magnifier';
 import { ShieldCheckIcon } from '@solar-icons/react/bold/shield-check';
-import { searchZones } from '../map/geometry.js';
+import { searchZones } from '../map/geometry.ts';
+import type { Zone } from '../types.ts';
 
 /*
  * La leyenda del croquis: los nombres de los edificios, que el plano oficial
@@ -16,7 +17,7 @@ import { searchZones } from '../map/geometry.js';
  */
 
 /** Los nombres de las unidades, como los lee el estudiante en el plano. */
-const UNIT_NAMES = {
+const UNIT_NAMES: Record<string, string> = {
   'metal-mecanica': 'Unidad Metal-Mecánica',
   central: 'Unidad Central',
   posgrado: 'Unidad Posgrado',
@@ -27,7 +28,7 @@ const UNIT_NAMES = {
 const UNIT_ORDER = ['metal-mecanica', 'central', 'posgrado', 'campus'];
 
 /** La fila se lee como el plano: la clave y el nombre del edificio. */
-function rowText(zone) {
+function rowText(zone: Zone): string {
   const code = (zone.code ?? '').trim();
   const name = (zone.name ?? '').trim();
   if (!code) return name;
@@ -37,7 +38,15 @@ function rowText(zone) {
   return `${code} · ${name}`;
 }
 
-export default function ZoneLegend({ zones = [], onSelect, onHover }) {
+export default function ZoneLegend({
+  zones = [],
+  onSelect,
+  onHover,
+}: {
+  zones?: Zone[];
+  onSelect?: (zone: Zone) => void;
+  onHover?: (zoneId: string | null) => void;
+}) {
   const [query, setQuery] = useState('');
   // En el teléfono la lista se pliega y el croquis es lo primero que se ve.
   const [open, setOpen] = useState(
@@ -47,7 +56,7 @@ export default function ZoneLegend({ zones = [], onSelect, onHover }) {
   const headingId = useId();
   const searchId = useId();
   const listId = useId();
-  const rowRefs = useRef(new Map());
+  const rowRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   /**
    * Con una búsqueda manda el ranking de `searchZones` (la misma jerarquía
@@ -59,11 +68,13 @@ export default function ZoneLegend({ zones = [], onSelect, onHover }) {
       return [{ unit: null, name: null, zones: searchZones(query, zones) }];
     }
 
-    const grouped = UNIT_ORDER.map((unit) => ({
-      unit,
-      name: UNIT_NAMES[unit] ?? unit,
-      zones: [],
-    }));
+    const grouped: { unit: string | null; name: string | null; zones: Zone[] }[] = UNIT_ORDER.map(
+      (unit) => ({
+        unit,
+        name: UNIT_NAMES[unit] ?? unit,
+        zones: [],
+      }),
+    );
     for (const zone of zones) {
       const group = grouped.find((entry) => entry.unit === zone.unit);
       if (group) group.zones.push(zone);
@@ -78,14 +89,14 @@ export default function ZoneLegend({ zones = [], onSelect, onHover }) {
   // La lista entera es un solo paso de tabulación: las flechas la recorren.
   const tabStop = rows.length === 0 ? -1 : Math.min(activeIndex, rows.length - 1);
 
-  const moveFocus = (index) => {
+  const moveFocus = (index: number) => {
     if (rows.length === 0) return;
     const next = Math.max(0, Math.min(index, rows.length - 1));
     setActiveIndex(next);
     rowRefs.current.get(rows[next].id)?.focus();
   };
 
-  const onRowKeyDown = (event, index) => {
+  const onRowKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault();
@@ -212,11 +223,11 @@ export default function ZoneLegend({ zones = [], onSelect, onHover }) {
                             onMouseEnter={() => onHover?.(zone.id)}
                             onMouseLeave={() => onHover?.(null)}
                             onFocus={() => {
-                              setActiveIndex(index);
+                              setActiveIndex(index ?? 0);
                               onHover?.(zone.id);
                             }}
                             onBlur={() => onHover?.(null)}
-                            onKeyDown={(event) => onRowKeyDown(event, index)}
+                            onKeyDown={(event) => onRowKeyDown(event, index ?? 0)}
                             ref={(node) => {
                               if (node) rowRefs.current.set(zone.id, node);
                               else rowRefs.current.delete(zone.id);

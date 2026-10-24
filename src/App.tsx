@@ -11,18 +11,18 @@ import { MapPointIcon } from '@solar-icons/react/bold/map-point';
 import { QuestionCircleIcon } from '@solar-icons/react/bold/question-circle';
 import { ShieldCheckIcon } from '@solar-icons/react/bold/shield-check';
 import { UserIcon } from '@solar-icons/react/bold/user';
-import CampusMap from './components/CampusMap.jsx';
-import ClaimInbox from './components/ClaimInbox.jsx';
-import ContactCard from './components/ContactCard.jsx';
-import LoginScreen from './components/LoginScreen.jsx';
-import Modal from './components/Modal.jsx';
-import MyReports from './components/MyReports.jsx';
-import OfflineBanner from './components/OfflineBanner.jsx';
-import PinCluster, { PinClusterList, clusterByZone } from './components/PinCluster.jsx';
-import ReportForm from './components/ReportForm.jsx';
-import ZoneLegend from './components/ZoneLegend.jsx';
-import ZonePicker from './components/ZonePicker.jsx';
-import { ErrorState, LoadingState } from './components/StateMessage.jsx';
+import CampusMap from './components/CampusMap.tsx';
+import ClaimInbox from './components/ClaimInbox.tsx';
+import ContactCard from './components/ContactCard.tsx';
+import LoginScreen from './components/LoginScreen.tsx';
+import Modal from './components/Modal.tsx';
+import MyReports from './components/MyReports.tsx';
+import OfflineBanner from './components/OfflineBanner.tsx';
+import PinCluster, { PinClusterList, clusterByZone } from './components/PinCluster.tsx';
+import ReportForm from './components/ReportForm.tsx';
+import ZoneLegend from './components/ZoneLegend.tsx';
+import ZonePicker from './components/ZonePicker.tsx';
+import { ErrorState, LoadingState } from './components/StateMessage.tsx';
 import {
   confirmDelivery,
   createMatch,
@@ -34,7 +34,8 @@ import {
   getMe,
   isApiConfigured,
   logout,
-} from './api.js';
+  ApiError,
+} from './api.ts';
 import {
   RELEASE_KEY_LENGTH,
   RELEASE_KEY_MAX_ATTEMPTS,
@@ -45,9 +46,10 @@ import {
   loadCampusData,
   reporterAlias,
   reportFromApi,
-} from './data.js';
-import { artworkToPercent, polygonCentroid, zoneAtPoint } from './map/geometry.js';
-import { MAP_IMAGE, ZONES } from './map/zones.js';
+} from './data.ts';
+import { artworkToPercent, polygonCentroid, zoneAtPoint } from './map/geometry.ts';
+import { MAP_IMAGE, ZONES } from './map/zones.ts';
+import type { Claim, Point, Report, ReportDraft, ScreenState, Session, Zone } from './types.ts';
 
 /*
  * Objetos Perdidos ITM: el croquis, los reportes y el protocolo de entrega.
@@ -59,6 +61,28 @@ import { MAP_IMAGE, ZONES } from './map/zones.js';
 
 /** Los estados en los que un reporte sigue en el mapa. */
 const ON_MAP_STATUSES = new Set(['open', 'pending_claim', 'in_custody']);
+
+/** La vista que la app muestra. */
+type View = 'map' | 'reports' | 'inbox';
+
+/** El diálogo que la app tiene abierto. */
+type ModalState =
+  | { kind: 'choose' }
+  | { kind: 'lost' }
+  | { kind: 'found' }
+  | { kind: 'claim'; report: Report }
+  | { kind: 'release-key'; report: Report }
+  | { kind: 'info'; reportId: string };
+
+/** Lo que contesta la publicación de un reporte. */
+type PublishAnswer = { ok: true; report: Report } | { ok: false; error: string };
+
+/** El punto que el estudiante está por marcar. */
+interface PendingPoint {
+  x: number;
+  y: number;
+  zone: { id: string; label: string } | null;
+}
 
 /** Los puntos seguros del campus: el catálogo es local, nunca se pide por red. */
 const SAFE_POINTS = ZONES.filter((zone) => zone.safePoint);
@@ -80,7 +104,7 @@ const MODAL_EXIT_MS = 240;
  * El cliente ya sabe la clase del fallo (sesión, red, conflicto); aquí sólo
  * se traduce el motivo que el servidor puso en su respuesta.
  */
-const API_ERROR_MESSAGES = {
+const API_ERROR_MESSAGES: Record<string, string> = {
   not_institutional: 'El acceso es sólo para el correo institucional del TECNM.',
   unknown_zone: 'Esa zona no existe en el croquis del campus. Elige otra.',
   invalid_report_status: 'Ese reporte ya no está disponible: ya fue reclamado o cerrado.',
@@ -96,10 +120,13 @@ const API_ERROR_MESSAGES = {
   invalid_safe_point: 'Ese lugar no es un punto seguro del campus.',
 };
 
-/** El motivo del API, traducido; el texto de reserva cuando no lo conoce. */
-function apiMessage(error, fallback) {
-  const reason = error?.payload?.error;
-  const remaining = error?.payload?.remaining;
+/**
+ * El motivo del API, traducido; el texto de reserva cuando no lo conoce.
+ */
+function apiMessage(error: unknown, fallback: string): string {
+  const failure = error instanceof ApiError ? error : null;
+  const reason = failure?.payload?.error;
+  const remaining = failure?.payload?.remaining;
 
   if (reason === 'wrong_code') {
     if (Number.isFinite(remaining)) {
@@ -114,7 +141,7 @@ function apiMessage(error, fallback) {
 }
 
 /** El punto del pin en los píxeles del artwork: así lo guarda el API. */
-function artworkPoint(pending) {
+function artworkPoint(pending: PendingPoint): Point {
   return {
     x: ((pending?.x ?? 0) / 100) * MAP_IMAGE.width,
     y: ((pending?.y ?? 0) / 100) * MAP_IMAGE.height,
@@ -122,7 +149,7 @@ function artworkPoint(pending) {
 }
 
 /* ────────────────────────── Componente Pin ────────────────────────── */
-function MapPin({ report, onClick }) {
+function MapPin({ report, onClick }: { report: Report; onClick: (report: Report) => void }) {
   const isLost = report.type === 'lost';
   const shortItem = report.item.length > 25 ? `${report.item.slice(0, 25)}...` : report.item;
 
@@ -190,7 +217,7 @@ function MapPin({ report, onClick }) {
 }
 
 /* ─────────────────── Marcador de la posición elegida ─────────────────── */
-function PendingMarker({ point }) {
+function PendingMarker({ point }: { point: Point }) {
   return (
     <div
       className="pointer-events-none absolute z-20 h-6 w-6 -translate-x-1/2 -translate-y-1/2"
@@ -208,7 +235,17 @@ function PendingMarker({ point }) {
 // escrito a mano. La tarjeta del formulario la muestra al que publica.
 
 /* ──────────────── Modal: Elegir tipo de pin ──────────────── */
-function PinTypeModal({ open = true, pending, onClose, onSelect }) {
+function PinTypeModal({
+  open = true,
+  pending,
+  onClose,
+  onSelect,
+}: {
+  open?: boolean;
+  pending: PendingPoint | null;
+  onClose: () => void;
+  onSelect: (kind: 'lost' | 'found') => void;
+}) {
   return (
     <Modal
       open={open}
@@ -285,6 +322,14 @@ function ReportModal({
   onSubmit,
   offline = false,
   error = '',
+}: {
+  open?: boolean;
+  kind: 'lost' | 'found';
+  session: Session;
+  onClose: () => void;
+  onSubmit: (draft: ReportDraft) => Promise<void>;
+  offline?: boolean;
+  error?: string;
 }) {
   const isFound = kind === 'found';
 
@@ -334,10 +379,19 @@ function ReportModal({
 }
 
 /* ─────────── Modal: la clave de liberación, recién creada ─────────── */
-function ReleaseKeyModal({ open = true, report, onClose }) {
+function ReleaseKeyModal({
+  open = true,
+  report,
+  onClose,
+}: {
+  open?: boolean;
+  report: Report;
+  onClose: () => void;
+}) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
+    if (!report.releaseKey) return;
     setCopied(await copyToClipboard(report.releaseKey));
   };
 
@@ -379,7 +433,22 @@ function ReleaseKeyModal({ open = true, report, onClose }) {
 // El reclamo se apoya en el dato ciego: el dueño del objeto lo comparó con
 // lo que guardó en privado y decide. El API exige que sea el dueño del
 // reporte perdido quien lo apruebe.
-function ClaimModal({ open = true, report, foundReports, onClose, onSubmit }) {
+function ClaimModal({
+  open = true,
+  report,
+  foundReports,
+  onClose,
+  onSubmit,
+}: {
+  open?: boolean;
+  report: Report;
+  foundReports: Report[];
+  onClose: () => void;
+  onSubmit: (
+    report: Report,
+    claim: { providedBlindDetail: string; message: string; foundReportId: string | null },
+  ) => Promise<{ ok: boolean; error?: string }>;
+}) {
   const [blindDetail, setBlindDetail] = useState('');
   const [message, setMessage] = useState('');
   const [foundId, setFoundId] = useState(foundReports[0]?.id ?? '');
@@ -392,7 +461,7 @@ function ClaimModal({ open = true, report, foundReports, onClose, onSubmit }) {
 
   const ready = blindDetail.trim().length > 0;
 
-  const submit = async (event) => {
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ready || sending) return;
 
@@ -511,6 +580,22 @@ export function PinInfoModal({
   onClaim,
   onDeposit,
   onSubmitKey,
+}: {
+  open?: boolean;
+  report: Report;
+  session: Session;
+  linked: Report | null;
+  claims: Claim[];
+  onClose: () => void;
+  onResolve: (reportId: string) => void;
+  onAttempt: (reportId: string) => void;
+  apiMode?: boolean;
+  onClaim: (report: Report) => void;
+  onDeposit: (
+    reportId: string,
+    safePointZoneId: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  onSubmitKey: (reportId: string, code: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
@@ -534,6 +619,7 @@ export function PinInfoModal({
     : 0;
 
   const copy = async () => {
+    if (!report.releaseKey) return;
     setCopied(await copyToClipboard(report.releaseKey));
   };
 
@@ -809,7 +895,14 @@ export function PinInfoModal({
 }
 
 /* ───────────────────── Botón de navegación del encabezado ───────────────────── */
-function NavButton({ active, children, ...rest }) {
+function NavButton({
+  active,
+  children,
+  ...rest
+}: {
+  active?: boolean;
+  children: React.ReactNode;
+} & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       type="button"
@@ -829,7 +922,7 @@ function NavButton({ active, children, ...rest }) {
 /* ───────────────────────────── Sesión ───────────────────────────── */
 
 /** La sesión de demostración se guarda entre recargas; con API manda la cookie. */
-function readStoredSession() {
+function readStoredSession(): Session | null {
   if (isApiConfigured()) return null;
   try {
     const raw = window.localStorage.getItem(SESSION_KEY);
@@ -843,7 +936,7 @@ function readStoredSession() {
  * La sesión de demostración se guarda entre recargas; con API la cookie es la
  * sesión, así que lo guardado se borra y no se confía de él.
  */
-function storeSession(session) {
+function storeSession(session: Session | null): void {
   try {
     if (isApiConfigured()) {
       window.localStorage.removeItem(SESSION_KEY);
@@ -878,32 +971,32 @@ function useOnline() {
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━ APP PRINCIPAL ━━━━━━━━━━━━━━━━━━━━━━━━ */
 export default function App() {
-  const [session, setSession] = useState(() => readStoredSession());
+  const [session, setSession] = useState<Session | null>(() => readStoredSession());
   const [checking, setChecking] = useState(() => isApiConfigured());
   const [sessionExpired, setSessionExpired] = useState(false);
   // El API no contesta: la app no puede fingir que tiene sesión.
   const [apiOffline, setApiOffline] = useState(false);
-  const [reports, setReports] = useState([]);
-  const [claims, setClaims] = useState([]);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [claims, setClaims] = useState<Claim[]>([]);
   // loading | ready | error
-  const [campus, setCampus] = useState('loading');
-  const [view, setView] = useState('map');
-  const [modal, setModal] = useState(null);
-  const [pending, setPending] = useState(null);
+  const [campus, setCampus] = useState<ScreenState>('loading');
+  const [view, setView] = useState<View>('map');
+  const [modal, setModal] = useState<ModalState | null>(null);
+  const [pending, setPending] = useState<PendingPoint | null>(null);
   // El diálogo se va antes de desmontarse: `closing` lo mantiene vivo
   // mientras dura su salida.
   const [closing, setClosing] = useState(false);
   const exitToken = useRef(0);
   // El enlace entre el hallazgo y el objeto perdido: lo guarda la app porque
   // el API todavía no lo expone.
-  const [links, setLinks] = useState({});
+  const [links, setLinks] = useState<Record<string, string>>({});
   // El error de la última acción: el del formulario o el de la bandeja.
   const [reportError, setReportError] = useState('');
   const [actionError, setActionError] = useState('');
   // La zona que la leyenda está iluminando en el croquis.
-  const [highlightZoneId, setHighlightZoneId] = useState(null);
+  const [highlightZoneId, setHighlightZoneId] = useState<string | null>(null);
   // El grupo del mapa que está abierto: una zona con más de un reporte.
-  const [clusterZoneId, setClusterZoneId] = useState(null);
+  const [clusterZoneId, setClusterZoneId] = useState<string | null>(null);
   const online = useOnline();
   // Sin señal del navegador o sin respuesta del API: no hay nada fresco.
   const isOffline = !online || apiOffline;
@@ -934,10 +1027,11 @@ export default function App() {
         if (!cancelled) setSession(user);
       } catch (error) {
         if (cancelled) return;
+        const failure = error instanceof ApiError ? error : null;
         // La sesión ya no vale: se vuelve al acceso con un aviso.
-        if (error.kind === 'unauthenticated') handleUnauthorized();
+        if (failure?.kind === 'unauthenticated') handleUnauthorized();
         // El servidor no está: sin conexión, no hay sesión que fingir.
-        else if (error.kind === 'offline') setApiOffline(true);
+        else if (failure?.kind === 'offline') setApiOffline(true);
       } finally {
         if (!cancelled) setChecking(false);
       }
@@ -949,7 +1043,7 @@ export default function App() {
     };
   }, [handleUnauthorized]);
 
-  const handleAuthenticated = useCallback((next) => {
+  const handleAuthenticated = useCallback((next: Session) => {
     setSession(next);
     setSessionExpired(false);
     storeSession(next);
@@ -957,6 +1051,7 @@ export default function App() {
 
   /** Los datos del campus: se piden y, si fallan, la pantalla lo dice. */
   const loadCampus = useCallback(async () => {
+    if (!session) return;
     // Un refresco no borra lo que ya está en pantalla: el croquis se queda
     // mientras llegan los datos nuevos.
     setCampus((previous) => (previous === 'ready' ? 'ready' : 'loading'));
@@ -966,15 +1061,16 @@ export default function App() {
       setClaims(data.claims);
       setCampus('ready');
     } catch (error) {
+      const failure = error instanceof ApiError ? error : null;
       // La sesión ya no vale: el servidor no reconoce la cookie.
-      if (error?.kind === 'unauthenticated') {
+      if (failure?.kind === 'unauthenticated') {
         handleUnauthorized();
         return;
       }
       // Sin señal no es un fallo del campus: lo explica el aviso sin conexión.
       const offline =
         (typeof navigator !== 'undefined' && navigator.onLine === false) ||
-        error?.kind === 'offline';
+        failure?.kind === 'offline';
       if (offline) setApiOffline(true);
       setCampus(offline ? 'offline' : 'error');
     }
@@ -1012,7 +1108,7 @@ export default function App() {
    * un corte: es una animación. El token cancela una salida que ya no
    * importa (el diálogo se cambió por otro en medio del camino).
    */
-  const closeWithExit = useCallback((close) => {
+  const closeWithExit = useCallback((close: () => void) => {
     const token = exitToken.current + 1;
     exitToken.current = token;
     setClosing(true);
@@ -1038,14 +1134,14 @@ export default function App() {
 
   /** Una zona del croquis: se marca su centro y se pregunta qué se reportará. */
   const handleSelectZone = useCallback(
-    (zone) => {
+    (zone: Zone | null) => {
       if (!zone) {
         setPending(null);
         setModal(null);
         return;
       }
 
-      const centroid = polygonCentroid(zone.polygon);
+      const centroid = polygonCentroid(zone.polygon ?? []);
       if (!centroid) return;
 
       cancelExit();
@@ -1062,7 +1158,7 @@ export default function App() {
 
   /** Un toque en terreno libre: se marca el punto y se pregunta qué se reportará. */
   const handlePick = useCallback(
-    (point) => {
+    (point: Point) => {
       const zone = zoneAtPoint(point, ZONES);
       const percent = artworkToPercent(point, MAP_IMAGE);
 
@@ -1078,7 +1174,7 @@ export default function App() {
   );
 
   const handleTypeSelect = useCallback(
-    (type) => {
+    (type: 'lost' | 'found') => {
       // El diálogo del tipo se sustituye por el formulario: la salida del
       // primero no tiene nada que enseñar.
       cancelExit();
@@ -1092,12 +1188,13 @@ export default function App() {
    * servidor rechazó con algo que el estudiante puede arreglar.
    */
   const handleApiFailure = useCallback(
-    (error, fallback) => {
-      if (error?.kind === 'unauthenticated') {
+    (error: unknown, fallback: string) => {
+      const failure = error instanceof ApiError ? error : null;
+      if (failure?.kind === 'unauthenticated') {
         handleUnauthorized();
         return 'Tu sesión venció. Vuelve a entrar con tu correo institucional para seguir.';
       }
-      if (error?.kind === 'offline') {
+      if (failure?.kind === 'offline') {
         setApiOffline(true);
         return 'No pudimos conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.';
       }
@@ -1114,10 +1211,21 @@ export default function App() {
    * memoria, nunca en el disco.
    */
   const publishReport = useCallback(
-    async (kind, { item, description, blindDetail }) => {
+    async (
+      kind: 'lost' | 'found',
+      {
+        item,
+        description,
+        blindDetail,
+      }: { item: string; description: string; blindDetail?: string },
+      session: Session,
+    ): Promise<PublishAnswer> => {
       const zone = pending?.zone;
       if (!zone) {
-        return { error: 'Elige una zona del croquis: el reporte se publica en una zona.' };
+        return {
+          ok: false,
+          error: 'Elige una zona del croquis: el reporte se publica en una zona.',
+        };
       }
 
       const point = artworkPoint(pending);
@@ -1132,6 +1240,7 @@ export default function App() {
       });
 
       return {
+        ok: true,
         report: {
           ...reportFromApi(created, { session, owner: created }),
           x: pending?.x ?? 0,
@@ -1144,9 +1253,10 @@ export default function App() {
   );
 
   const handleLostSubmit = useCallback(
-    async ({ item, description }) => {
+    async ({ item, description }: ReportDraft) => {
+      if (!session) return;
       if (!isApiConfigured()) {
-        const report = {
+        const report: Report = {
           id: `pin-${Date.now()}`,
           type: 'lost',
           x: pending?.x ?? 0,
@@ -1172,11 +1282,12 @@ export default function App() {
       }
 
       try {
-        const { report, error } = await publishReport('lost', { item, description });
-        if (error) {
-          setReportError(error);
+        const answer = await publishReport('lost', { item, description }, session);
+        if (!answer.ok) {
+          setReportError(answer.error);
           return;
         }
+        const { report } = answer;
         setReportError('');
         setReports((prev) => [report, ...prev]);
         setPending(null);
@@ -1191,9 +1302,10 @@ export default function App() {
   );
 
   const handleFoundSubmit = useCallback(
-    async ({ item, description, blindDetail }) => {
+    async ({ item, description, blindDetail }: ReportDraft) => {
+      if (!session) return;
       if (!isApiConfigured()) {
-        const report = {
+        const report: Report = {
           id: `pin-${Date.now()}`,
           type: 'found',
           x: pending?.x ?? 0,
@@ -1220,11 +1332,12 @@ export default function App() {
       }
 
       try {
-        const { report, error } = await publishReport('found', { item, description, blindDetail });
-        if (error) {
-          setReportError(error);
+        const answer = await publishReport('found', { item, description, blindDetail }, session);
+        if (!answer.ok) {
+          setReportError(answer.error);
           return;
         }
+        const { report } = answer;
         setReportError('');
         setReports((prev) => [report, ...prev]);
         setPending(null);
@@ -1245,14 +1358,22 @@ export default function App() {
    * guarda en memoria: es lo que permite confirmar la entrega más tarde.
    */
   const handleClaim = useCallback(
-    async (report, { providedBlindDetail, message, foundReportId }) => {
+    async (
+      report: Report,
+      {
+        providedBlindDetail,
+        message,
+        foundReportId,
+      }: { providedBlindDetail: string; message: string; foundReportId: string | null },
+    ) => {
       try {
         if (foundReportId) {
           try {
             await createMatch(report.id, foundReportId);
           } catch (error) {
             // El enlace ya existe: no es un fallo, el reclamo sigue.
-            if (error?.kind !== 'conflict') throw error;
+            const failure = error instanceof ApiError ? error : null;
+            if (failure?.kind !== 'conflict') throw error;
           }
         }
 
@@ -1284,7 +1405,7 @@ export default function App() {
 
   /** La entrega: la clave la dicta el dueño y el API la valida. */
   const handleSubmitKey = useCallback(
-    async (lostReportId, code) => {
+    async (lostReportId: string, code: string) => {
       try {
         await confirmDelivery(lostReportId, code);
       } catch (error) {
@@ -1303,7 +1424,7 @@ export default function App() {
 
   /** El punto seguro: el objeto queda en resguardo y el mapa lo dice. */
   const handleDeposit = useCallback(
-    async (reportId, safePointZoneId) => {
+    async (reportId: string, safePointZoneId: string) => {
       try {
         await depositAtSafePoint(reportId, safePointZoneId);
       } catch (error) {
@@ -1322,7 +1443,7 @@ export default function App() {
   );
 
   /** Un intento fallido lo quema quien tiene el objeto, nunca la clave. */
-  const handleAttempt = useCallback((lostReportId) => {
+  const handleAttempt = useCallback((lostReportId: string) => {
     setReports((prev) =>
       prev.map((report) =>
         report.id === lostReportId
@@ -1334,7 +1455,7 @@ export default function App() {
 
   /** La entrega se realizó: el caso se cierra, pero nada se borra. */
   const handleResolve = useCallback(
-    (foundReportId) => {
+    (foundReportId: string) => {
       const found = reports.find((report) => report.id === foundReportId);
       const closed = new Set(
         found?.linkedLostReportId ? [foundReportId, found.linkedLostReportId] : [foundReportId],
@@ -1357,7 +1478,7 @@ export default function App() {
   );
 
   const handleApproveClaim = useCallback(
-    async (claimId) => {
+    async (claimId: string) => {
       const claim = claims.find((entry) => entry.id === claimId);
       if (!claim) return;
 
@@ -1365,7 +1486,11 @@ export default function App() {
         setClaims((prev) =>
           prev.map((entry) =>
             entry.id === claimId
-              ? { ...entry, status: 'approved', contact: contactFor(entry.claimantId) }
+              ? {
+                  ...entry,
+                  status: 'approved',
+                  contact: entry.claimantId ? contactFor(entry.claimantId) : null,
+                }
               : entry,
           ),
         );
@@ -1398,7 +1523,7 @@ export default function App() {
   );
 
   const handleRejectClaim = useCallback(
-    async (claimId) => {
+    async (claimId: string) => {
       const claim = claims.find((entry) => entry.id === claimId);
 
       if (!isApiConfigured()) {
@@ -1434,7 +1559,7 @@ export default function App() {
   );
 
   const handlePinClick = useCallback(
-    (report) => setModal({ kind: 'info', reportId: report.id }),
+    (report: Report) => setModal({ kind: 'info', reportId: report.id }),
     [],
   );
 
@@ -1447,7 +1572,7 @@ export default function App() {
   // se dibuja como un marcador con la cuenta, no como pines apilados.
   const mapGroups = useMemo(() => clusterByZone(mapReports), [mapReports]);
 
-  const openCluster = useCallback((zoneId) => setClusterZoneId(zoneId), []);
+  const openCluster = useCallback((zoneId: string) => setClusterZoneId(zoneId), []);
   const closeCluster = useCallback(() => {
     closeWithExit(() => setClusterZoneId(null));
   }, [closeWithExit]);
@@ -1461,7 +1586,7 @@ export default function App() {
   // Un reporte del grupo abre su detalle: la lista se cierra en el mismo
   // paso, para que no queden dos diálogos encima.
   const openReportFromCluster = useCallback(
-    (report) => {
+    (report: Report) => {
       // El grupo se sustituye por el reporte: aquí no hay salida que ver,
       // hay un diálogo que ocupa el lugar del otro.
       cancelExit();

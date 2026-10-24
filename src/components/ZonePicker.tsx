@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MagnifierIcon } from '@solar-icons/react/bold/magnifier';
-import { EmptyState, LoadingState } from './StateMessage.jsx';
-import { searchZones } from '../map/geometry.js';
+import { EmptyState, LoadingState } from './StateMessage.tsx';
+import { searchZones } from '../map/geometry.ts';
+import type { ScreenState, Zone } from '../types.ts';
 
 /*
  * The picker is the keyboard path to the zones: the overlay buttons are not
@@ -12,27 +13,35 @@ import { searchZones } from '../map/geometry.js';
 const LISTBOX_ID = 'zone-picker-listbox';
 
 /** Unit identifiers as the students read them on the croquis. */
-const UNIT_LABELS = {
+const UNIT_LABELS: Record<string, string> = {
   'metal-mecanica': 'Metal-Mecánica',
   central: 'Central',
   posgrado: 'Posgrado',
   campus: 'Campus',
 };
 
-export default function ZonePicker({ zones, onSelect, state = 'ready' }) {
+export default function ZonePicker({
+  zones,
+  onSelect,
+  state = 'ready',
+}: {
+  zones: Zone[];
+  onSelect: (zone: Zone) => void;
+  state?: ScreenState;
+}) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const containerRef = useRef(null);
-  const listRef = useRef(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   // An empty query lists every zone; a typed one is ranked by searchZones.
   const results = useMemo(() => (query.trim() ? searchZones(query, zones) : zones), [query, zones]);
 
   useEffect(() => {
     if (!open) return undefined;
-    const closeOnOutsideClick = (event) => {
-      if (!containerRef.current?.contains(event.target)) setOpen(false);
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
     };
     document.addEventListener('pointerdown', closeOnOutsideClick);
     return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
@@ -42,14 +51,14 @@ export default function ZonePicker({ zones, onSelect, state = 'ready' }) {
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
   }, [activeIndex, open]);
 
-  const select = (zone) => {
+  const select = (zone: Zone) => {
     setOpen(false);
     setQuery('');
     setActiveIndex(0);
     onSelect(zone);
   };
 
-  const handleKeyDown = (event) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Escape') {
       setOpen(false);
       return;

@@ -20,14 +20,14 @@
     "dev": "vp dev",
     "build": "tsc && vp build",
     "preview": "vp preview",
-    "zones": "vp exec node scripts/extract-zones.mjs && vp fmt --write src/map/zones.js",
+    "zones": "vp exec node scripts/extract-zones.ts && vp fmt --write src/map/zones.ts",
     "api": "vp exec node --env-file-if-exists=api/.env api/src/server.ts",
     "api:migrate": "vp exec node --env-file-if-exists=api/.env api/src/db/migrate.ts",
     "db:generate": "vp exec drizzle-kit generate --config api/drizzle.config.ts",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "smoke": "vp exec node scripts/smoke-journey.mjs",
-    "smoke:structure": "vp exec node scripts/structure-check.mjs"
+    "smoke": "vp exec node scripts/smoke-journey.ts",
+    "smoke:structure": "vp exec node scripts/structure-check.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",

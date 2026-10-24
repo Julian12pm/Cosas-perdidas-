@@ -1,42 +1,23 @@
-import { readFileSync } from 'node:fs';
-import { runInNewContext } from 'node:vm';
 import { asc } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { zones as zoneTable, type ZoneKind } from '#db/schema';
+import { zones as zoneTable } from '#db/schema';
 import type { AppDatabase, DatabaseProvider } from '#routes/common';
+import { ZONES } from '../../../src/map/zones.ts';
+import type { Polygon, Zone } from '../../../src/types.ts';
 
-/** The catalogue the web app draws, generated from the campus plan. */
-const ZONES_FILE = new URL('../../../src/map/zones.js', import.meta.url);
-
-interface ZoneSeed {
-  id: string;
-  code: string | null;
-  name: string;
-  unit: string;
-  kind: ZoneKind;
-  safePoint: boolean;
-  label: string;
-  polygon: readonly (readonly [number, number])[];
-}
-
-/**
- * Reads the zone catalogue from the generated file.
- *
- * The file is the single source of the map, so the API seeds the table with
- * it instead of carrying a second copy of the campus.
- */
-function readZoneCatalogue(): ZoneSeed[] {
-  const source = readFileSync(ZONES_FILE, 'utf8').replace(/^export\s+/gm, '');
-  const catalogue: unknown = runInNewContext(`${source}\n;ZONES;`);
-  if (!Array.isArray(catalogue)) return [];
-  return catalogue as ZoneSeed[];
+/** Una zona con su forma: la tabla guarda la forma, así que hace falta. */
+function hasPolygon(zone: Zone): zone is Zone & { polygon: Polygon } {
+  return Boolean(zone.polygon);
 }
 
 /** Fills the zone table when it is empty, the catalogue of the web app. */
 export async function ensureZonesSeeded(database: AppDatabase): Promise<void> {
   const existing = await database.select({ id: zoneTable.id }).from(zoneTable).limit(1);
   if (existing.length > 0) return;
-  const rows = readZoneCatalogue().map((zone) => ({
+  // The catalogue the web app draws is the single source of the map, so the
+  // API seeds the table with it instead of carrying a second copy of the
+  // campus. It is imported, not parsed: the catalogue is TypeScript.
+  const rows = ZONES.filter(hasPolygon).map((zone) => ({
     id: zone.id,
     code: zone.code,
     name: zone.name,

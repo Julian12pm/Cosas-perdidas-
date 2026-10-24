@@ -19,7 +19,7 @@
  *   vp exec node scripts/smoke-journey.mjs
  */
 
-import { chromium } from 'playwright-core';
+import { chromium, type Browser, type CDPSession, type Locator, type Page } from 'playwright-core';
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -37,8 +37,9 @@ import {
   polygonCentroid,
   polygonPath,
   zoneAtPoint,
-} from '../src/map/geometry.js';
-import { MAP_IMAGE, ZONE_BY_ID, ZONES } from '../src/map/zones.js';
+} from '../src/map/geometry.ts';
+import { MAP_IMAGE, ZONE_BY_ID, ZONES } from '../src/map/zones.ts';
+import type { Zone } from '../src/types.ts';
 
 /* ─────────────────────────── Configuración ─────────────────────────── */
 
@@ -91,14 +92,50 @@ const DATOS_GENERALES_BOX = { x: 45, y: 515, width: 175, height: 95 };
 const PAGE_GROUND = [0x0f, 0x12, 0x19];
 
 /** Hallazgos sobre la app que la prueba descubre (no son fallos del recorrido). */
-const findings = [];
+/** La caja que el navegador dibuja: con `left` y `top`, como el DOM. */
+interface DomBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** El artwork del croquis: su caja, la de su layout y la que se pinta. */
+interface Raster {
+  box: DomBox;
+  local: { width: number; height: number };
+  painted: { x: number; y: number; width: number; height: number };
+}
+
+/** La caja que devuelve el navegador: con `x` y `y`, como el DOM. */
+interface PlaywrightBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** El viewport que se recorre: su nombre y su tamaño. */
+interface Viewport {
+  name: string;
+  width: number;
+  height: number;
+}
+
+/** Un punto de la pantalla. */
+interface Spot {
+  x: number;
+  y: number;
+}
+
+const findings: string[] = [];
 
 /* ────────────────────────────── Utilidades ────────────────────────────── */
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** ¿Contesta la app en esa URL? */
-export async function isUp(url) {
+export async function isUp(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(2500) });
     return response.status < 500;
@@ -113,7 +150,7 @@ export async function isUp(url) {
  * El puerto puede estarlo otro proyecto: la prueba lo dice en vez de medir la
  * app equivocada.
  */
-export async function servesOurApp(url) {
+export async function servesOurApp(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(2500) });
     const html = await response.text();
@@ -127,7 +164,9 @@ export async function servesOurApp(url) {
  * Devuelve el servidor: el que ya esté corriendo o uno propio.
  * `stop()` sólo mata lo que este proceso arrancó.
  */
-export async function ensureServer(url = APP_URL) {
+export async function ensureServer(
+  url = APP_URL,
+): Promise<{ started: boolean; stop: () => Promise<void>; log: string[] }> {
   if (await isUp(url)) {
     // Un servidor que ya estaba puede ser el de otro proyecto: la prueba
     // reúsa el suyo, pero nunca mide el de otro.
@@ -142,7 +181,7 @@ export async function ensureServer(url = APP_URL) {
 
   const port = new URL(url).port || '5173';
   const bin = join(ROOT, 'node_modules', '.bin', 'vp');
-  const log = [];
+  const log: string[] = [];
   // `--strictPort`: si el puerto está ocupado, el servidor muere en vez de
   // mudarse a otro y dejar la prueba conduciendo la app equivocada.
   const child = spawn(bin, ['dev', '--port', port, '--strictPort'], {
@@ -150,7 +189,7 @@ export async function ensureServer(url = APP_URL) {
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  const collect = (chunk) => {
+  const collect = (chunk: Buffer) => {
     log.push(String(chunk));
     if (log.length > 200) log.shift();
   };
@@ -197,43 +236,55 @@ export async function ensureServer(url = APP_URL) {
 
 /* ─────────────────────────── Informe de aserciones ─────────────────────────── */
 
-const results = [];
-const consoleErrors = [];
-const consoleMessages = [];
+const results: {
+  viewport: string;
+  name: string;
+  pass: boolean;
+  expected: string;
+  observed: string;
+}[] = [];
+const consoleErrors: string[] = [];
+const consoleMessages: string[] = [];
 const findingKeys = new Set();
 
-function record(viewport, name, pass, expected, observed) {
+function record(
+  viewport: string,
+  name: string,
+  pass: unknown,
+  expected: string,
+  observed: unknown,
+): boolean {
   results.push({ viewport, name, pass: Boolean(pass), expected, observed: String(observed) });
   return Boolean(pass);
 }
 
-function finding(where, what) {
+function finding(where: string, what: string): void {
   // La clave ignora las medidas: el mismo defecto en dos viewports es un solo hallazgo.
   const key = `${where}|${what.slice(0, 45)}`;
   if (findingKeys.has(key)) return;
   findingKeys.add(key);
-  findings.push({ where, what });
+  findings.push(`${where}: ${what}`);
 }
 
 /* ──────────────────────────── Utilidades de página ──────────────────────────── */
 
-const t = (id) => `[data-testid="${id}"]`;
+const t = (id: string) => `[data-testid="${id}"]`;
 
 /** El texto limpio de un elemento (sin espacios dobles). */
-async function textOf(page, selector) {
+async function textOf(page: Page, selector: string): Promise<string> {
   const raw = await page.locator(selector).first().innerText();
   return raw.replace(/\s+/g, ' ').trim();
 }
 
 /** El número de un contador del encabezado ("2 perdidos" → 2). */
-async function countOf(page, selector) {
+async function countOf(page: Page, selector: string): Promise<number> {
   const raw = await textOf(page, selector);
   const match = raw.match(/\d+/);
   return match ? Number(match[0]) : NaN;
 }
 
 /** El transform del capa del croquis (la que se mueve al hacer zoom o arrastre). */
-async function artworkTransform(page) {
+async function artworkTransform(page: Page): Promise<string | null> {
   return page.evaluate(() => {
     const listbox = document.querySelector('[data-testid="map"] [role="listbox"]');
     return listbox?.parentElement?.getAttribute('style') ?? null;
@@ -241,19 +292,19 @@ async function artworkTransform(page) {
 }
 
 /** El factor de escala del croquis. */
-function scaleOf(transform) {
+function scaleOf(transform: string | null): number {
   const match = transform?.match(/scale\(([\d.]+)\)/);
   return match ? Number(match[1]) : NaN;
 }
 
 /** La traslación del croquis: cuánto se movió el artwork en la pantalla. */
-function translationOf(transform) {
+function translationOf(transform: string | null): Spot | null {
   const match = transform?.match(/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/);
   return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
 }
 
 /** La caja de la capa del artwork (las zonas y los pines): el croquis pintado. */
-async function artworkLayerBox(page) {
+async function artworkLayerBox(page: Page): Promise<DomBox | null> {
   return page.evaluate(() => {
     const layer = document.querySelector('[data-testid="map"] [role="listbox"]')?.parentElement;
     if (!layer) return null;
@@ -266,9 +317,9 @@ async function artworkLayerBox(page) {
  * La rueda acerca el croquis hasta una escala dada, con el cursor como ancla
  * (el artwork que está bajo el cursor se queda donde está).
  */
-async function zoomTo(page, target, cursor) {
+async function zoomTo(page: Page, target: number, cursor: Spot): Promise<void> {
   for (let attempt = 0; attempt < 8; attempt += 1) {
-    const current = scaleOf(await artworkTransform(page));
+    const current = scaleOf((await artworkTransform(page)) ?? '');
     if (!Number.isFinite(current) || current <= 0) return;
     if (Math.abs(current - target) <= 0.05) return;
     const delta = (-Math.log(target / current) / 0.0015) * 0.98;
@@ -283,9 +334,9 @@ async function zoomTo(page, target, cursor) {
  * letterbox sobre su caja de layout (la que el zoom no toca). El artwork ya
  * no es un mapa de bits sino un <svg>: su tamaño natural es el viewBox.
  */
-async function rasterBox(page) {
+async function rasterBox(page: Page): Promise<Raster | null> {
   return page.evaluate(() => {
-    const artwork = document.querySelector('[data-testid="map-artwork"]');
+    const artwork = document.querySelector<SVGSVGElement>('[data-testid="map-artwork"]');
     const viewBox = artwork?.viewBox?.baseVal;
     if (!artwork || !viewBox || !(viewBox.width > 0)) return null;
     const style = getComputedStyle(artwork);
@@ -308,7 +359,7 @@ async function rasterBox(page) {
 }
 
 /** La caja del artwork tal como la pinta el raster, en la pantalla. */
-function paintedArtworkBox(raster) {
+function paintedArtworkBox(raster: Raster): DomBox {
   return {
     left: raster.box.left + (raster.painted.x / raster.local.width) * raster.box.width,
     top: raster.box.top + (raster.painted.y / raster.local.height) * raster.box.height,
@@ -318,7 +369,7 @@ function paintedArtworkBox(raster) {
 }
 
 /** El punto del artwork (0..1) que el raster pinta bajo un punto de la pantalla. */
-function artworkUnder(raster, client) {
+function artworkUnder(raster: Raster, client: Spot): Spot {
   const localX = ((client.x - raster.box.left) / raster.box.width) * raster.local.width;
   const localY = ((client.y - raster.box.top) / raster.box.height) * raster.local.height;
   return {
@@ -327,8 +378,22 @@ function artworkUnder(raster, client) {
   };
 }
 
+/** El artwork medido: la prueba no sigue sin medidas. */
+async function rasterOf(page: Page): Promise<Raster> {
+  const raster = await rasterBox(page);
+  if (!raster) throw new Error('no se pudo medir el artwork del croquis');
+  return raster;
+}
+
+/** La capa del artwork medida: la prueba no sigue sin medidas. */
+async function layerOf(page: Page): Promise<DomBox> {
+  const layer = await artworkLayerBox(page);
+  if (!layer) throw new Error('no se pudo medir la capa del croquis');
+  return layer;
+}
+
 /** El punto de la pantalla donde el raster pinta un punto del artwork. */
-function screenOfArtwork(raster, artwork) {
+function screenOfArtwork(raster: Raster, artwork: Spot): Spot {
   const localX = raster.painted.x + artwork.x * raster.painted.width;
   const localY = raster.painted.y + artwork.y * raster.painted.height;
   return {
@@ -338,7 +403,7 @@ function screenOfArtwork(raster, artwork) {
 }
 
 /** El punto de la pantalla donde la capa de zonas pinta un punto del artwork. */
-function screenOfArtworkLayer(layer, artwork) {
+function screenOfArtworkLayer(layer: DomBox, artwork: Spot): Spot {
   return {
     x: layer.left + artwork.x * layer.width,
     y: layer.top + artwork.y * layer.height,
@@ -346,12 +411,12 @@ function screenOfArtworkLayer(layer, artwork) {
 }
 
 /** El tamaño en pantalla del primer pin del mapa. */
-async function pinSize(page) {
+async function pinSize(page: Page): Promise<PlaywrightBox> {
   return page.evaluate(() => {
-    const pin = document.querySelector('button[aria-label^="Pin "]');
-    if (!pin) return null;
+    const pin = document.querySelector<HTMLElement>('button[aria-label^="Pin "]');
+    if (!pin) return { x: 0, y: 0, width: 0, height: 0 };
     const rect = pin.getBoundingClientRect();
-    return { width: rect.width, height: rect.height };
+    return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
   });
 }
 
@@ -360,11 +425,12 @@ async function pinSize(page) {
  * El croquis publica la suya (`data-scale`), que es la misma que usa para
  * extruir los volúmenes; sin ella se mide sobre el <svg> pintado.
  */
-async function paintedScale(page) {
+async function paintedScale(page: Page): Promise<number> {
   return page.evaluate(() => {
-    const svg = document.querySelector('[data-testid="map-artwork"]');
+    const svg = document.querySelector<SVGSVGElement>('[data-testid="map-artwork"]');
     const declared = Number(svg?.dataset?.scale);
     if (Number.isFinite(declared) && declared > 0) return declared;
+    if (!svg) return 0;
     const rect = svg.getBoundingClientRect();
     const vb = svg.viewBox.baseVal;
     return rect.width / vb.width;
@@ -376,12 +442,15 @@ async function paintedScale(page) {
  * tejado, en píxeles de pantalla. Es lo que decide si el relieve se lee como
  * un volumen o como una mancha del plano.
  */
-async function visibleWall(page, buildingId) {
+async function visibleWall(
+  page: Page,
+  buildingId: string,
+): Promise<{ dx: number; dy: number } | null> {
   const units = await page.evaluate((id) => {
-    const svg = document.querySelector('[data-testid="map-artwork"]');
+    const svg = document.querySelector<SVGSVGElement>('[data-testid="map-artwork"]');
     const group = svg?.querySelector(`[data-building="${id}"]`);
-    const base = group?.querySelector('[data-shape="base"]');
-    const top = group?.querySelector('[data-shape="top"]');
+    const base = group?.querySelector<SVGGraphicsElement>('[data-shape="base"]');
+    const top = group?.querySelector<SVGGraphicsElement>('[data-shape="top"]');
     if (!base || !top) return null;
     const b = base.getBBox();
     const t = top.getBBox();
@@ -393,11 +462,13 @@ async function visibleWall(page, buildingId) {
 }
 
 /** El contraste de dos colores, con la fórmula de WCAG. */
-function contrastRatio(first, second) {
-  const luminance = (hex) => {
+function contrastRatio(first: string, second: string): number {
+  const luminance = (hex: string) => {
     const value = String(hex).replace('#', '').trim();
     const channels = [0, 2, 4].map((i) => parseInt(value.slice(i, i + 2), 16) / 255);
-    const linear = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    const linear = channels.map((c: number) =>
+      c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4,
+    );
     return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
   };
   const a = luminance(first);
@@ -410,7 +481,7 @@ function contrastRatio(first, second) {
  * o el croquis se mueve, según el `touch-action` de la capa que hay bajo el
  * dedo.
  */
-async function swipe(page, client, from, deltaY) {
+async function swipe(client: CDPSession, from: Spot, deltaY: number): Promise<void> {
   await client.send('Input.dispatchTouchEvent', {
     type: 'touchStart',
     touchPoints: [{ x: from.x, y: from.y, id: 1 }],
@@ -427,12 +498,12 @@ async function swipe(page, client, from, deltaY) {
 }
 
 /** El punto está dentro del recuadro del croquis que se ve en la pantalla. */
-function within(point, box) {
+function within(point: Spot, box: DomBox): boolean {
   return (
-    point.x > box.x + 4 &&
-    point.x < box.x + box.width - 4 &&
-    point.y > box.y + 4 &&
-    point.y < box.y + box.height - 4
+    point.x > box.left + 4 &&
+    point.x < box.left + box.width - 4 &&
+    point.y > box.top + 4 &&
+    point.y < box.top + box.height - 4
   );
 }
 
@@ -440,8 +511,8 @@ function within(point, box) {
  * El centro del tejado de un edificio: la cara que el dedo toca. El tejado es
  * la base desplazada hacia la luz, así que el punto cae fuera de la base.
  */
-function roofCenter(zone, scale) {
-  const shapes = zone.fragments?.length ? zone.fragments : [zone.polygon];
+function roofCenter(zone: Zone, scale: number): Spot | null {
+  const shapes = zone.fragments?.length ? zone.fragments : [zone.polygon ?? []];
   const shape = shapes.reduce(
     (best, candidate) => (polygonArea(candidate) > polygonArea(best) ? candidate : best),
     shapes[0],
@@ -459,14 +530,19 @@ function roofCenter(zone, scale) {
  * de pantalla al píxel entero, así que el punto que se toca no es el que se
  * calculó. El punto de la base es el que sobrevive a ese redondeo.
  */
-function baseSpot(zones, scale, raster) {
+function baseSpot(
+  zones: Zone[],
+  scale: number,
+  raster: Raster,
+): { zone: Zone; point: Spot; client: Spot } | null {
   for (const zone of zones.filter((entry) => entry.kind === 'building')) {
-    const shapes = zone.fragments?.length ? zone.fragments : [zone.polygon];
+    const shapes = zone.fragments?.length ? zone.fragments : [zone.polygon ?? []];
     const shape = shapes.reduce(
       (best, candidate) => (polygonArea(candidate) > polygonArea(best) ? candidate : best),
       shapes[0],
     );
     const bounds = polygonBounds(shape);
+    if (!bounds) continue;
     for (let fx = 0.2; fx <= 0.951; fx += 0.15) {
       for (let fy = 0.2; fy <= 0.951; fy += 0.15) {
         const point = {
@@ -477,7 +553,7 @@ function baseSpot(zones, scale, raster) {
         const landed = landedPoint(raster, point);
         if (!pointInPolygon(landed.artwork, shape)) continue;
         const covered = zones.some((other) =>
-          (other.fragments?.length ? other.fragments : [other.polygon]).some((candidate) =>
+          (other.fragments?.length ? other.fragments : [other.polygon ?? []]).some((candidate) =>
             pointInPolygon(
               landed.artwork,
               extrudePolygon(candidate, heightFor(other), scale, LIGHT).top,
@@ -497,7 +573,7 @@ function baseSpot(zones, scale, raster) {
  * El punto donde cae el dedo: el navegador redondea a píxel entero, así que
  * el punto real es el que sobrevive al redondeo.
  */
-function landedPoint(raster, artworkPoint) {
+function landedPoint(raster: Raster, artworkPoint: Spot): { client: Spot; artwork: Spot } {
   const spot = screenOfArtwork(raster, {
     x: artworkPoint.x / MAP_IMAGE.width,
     y: artworkPoint.y / MAP_IMAGE.height,
@@ -511,20 +587,28 @@ function landedPoint(raster, artworkPoint) {
 }
 
 /** Los pines del mapa (los botones con nombre accesible "Pin perdido/encontrado"). */
-const pinCount = (page) => page.locator('button[aria-label^="Pin "]').count();
+const pinCount = (page: Page): Promise<number> =>
+  page.locator('button[aria-label^="Pin "]').count();
 
 /** Los grupos del mapa: un marcador por zona con más de un reporte. */
-const clusterCount = (page) => page.locator('button[data-testid^="pin-cluster-marker-"]').count();
+const clusterCount = (page: Page): Promise<number> =>
+  page.locator('button[data-testid^="pin-cluster-marker-"]').count();
 
 /** Los marcadores del mapa: los pines sueltos y los grupos. */
-const markerCount = (page) =>
+const markerCount = (page: Page): Promise<number> =>
   page.locator('button[aria-label^="Pin "], button[data-testid^="pin-cluster-marker-"]').count();
 
 /**
  * Comprueba que la acción principal de un diálogo es alcanzable: visible, dentro
  * del viewport y con un objetivo táctil de 44px de alto.
  */
-async function checkPrimaryAction(page, viewport, step, locator, label) {
+async function checkPrimaryAction(
+  page: Page,
+  viewport: string,
+  step: string,
+  locator: Locator,
+  label: string,
+): Promise<void> {
   const element = locator.first();
   const visible = await element.isVisible();
   await element.scrollIntoViewIfNeeded().catch(() => {});
@@ -542,8 +626,8 @@ async function checkPrimaryAction(page, viewport, step, locator, label) {
     .catch(() => {});
   const box = await element.boundingBox();
   const size = page.viewportSize();
+  if (!box || !size) return;
   const inside =
-    Boolean(box) &&
     box.x >= -1 &&
     box.y >= -1 &&
     box.x + box.width <= size.width + 1 &&
@@ -566,7 +650,7 @@ async function checkPrimaryAction(page, viewport, step, locator, label) {
 }
 
 /** Sin desbordamiento horizontal en la pantalla actual. */
-async function checkOverflow(page, viewport, step) {
+async function checkOverflow(page: Page, viewport: string, step: string): Promise<void> {
   const { scrollWidth, innerWidth } = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     innerWidth: window.innerWidth,
@@ -581,7 +665,12 @@ async function checkOverflow(page, viewport, step) {
 }
 
 /** Los estados que la pantalla puede estar pintando, contados por gancho. */
-async function stateHooks(page) {
+async function stateHooks(page: Page): Promise<{
+  loading: number;
+  empty: number;
+  error: number;
+  offline: number;
+}> {
   return page.evaluate(() => ({
     loading: document.querySelectorAll('[data-testid="state-loading"]').length,
     empty: document.querySelectorAll('[data-testid="state-empty"]').length,
@@ -595,7 +684,7 @@ async function stateHooks(page) {
  * que se avisa. El aviso sin conexión es global (vive en el encabezado) y no
  * cuenta como estado de la pantalla.
  */
-async function checkSingleState(page, viewport, step) {
+async function checkSingleState(page: Page, viewport: string, step: string): Promise<void> {
   const hooks = await stateHooks(page);
   const screens = hooks.loading + hooks.empty + hooks.error;
   record(
@@ -605,12 +694,14 @@ async function checkSingleState(page, viewport, step) {
     'a lo sumo un estado de pantalla (cargando, vacío o error)',
     JSON.stringify(hooks),
   );
-  return hooks;
 }
 
 /* ─────────────────────────────── Recorrido ─────────────────────────────── */
 
-async function runJourney(browser, viewport) {
+async function runJourney(
+  browser: Browser,
+  viewport: Viewport,
+): Promise<{ screenshots: string[] }> {
   const { name: vp, width, height } = viewport;
   const context = await browser.newContext({
     viewport: { width, height },
@@ -634,14 +725,18 @@ async function runJourney(browser, viewport) {
     consoleErrors.push(entry);
   });
 
-  const screenshots = [];
-  const take = async (step, index) => {
+  const screenshots: string[] = [];
+  const take = async (step: string, index: number): Promise<string> => {
     const file = join(SHOTS_DIR, `${String(index).padStart(2, '0')}-${step}-${vp}.png`);
     await page.screenshot({ path: file });
     screenshots.push(file);
     return file;
   };
-  const takeClip = async (step, index, clip) => {
+  const takeClip = async (
+    step: string,
+    index: number,
+    clip: { x: number; y: number; width: number; height: number },
+  ): Promise<string> => {
     const file = join(SHOTS_DIR, `${String(index).padStart(2, '0')}-${step}-${vp}.png`);
     await page.screenshot({ path: file, clip });
     screenshots.push(file);
@@ -729,7 +824,7 @@ async function runJourney(browser, viewport) {
       const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
       let node = walker.nextNode();
       while (node) {
-        const raw = node.nodeValue;
+        const raw = node.nodeValue ?? '';
         // El espacio inicial de un trozo puede borrarse al pintarse (un
         // elemento flexible lo recorta), así que el hueco se mide desde el
         // primer carácter visible.
@@ -756,7 +851,7 @@ async function runJourney(browser, viewport) {
           expectsSpace: /\s$/.test(previous.raw) || /^\s/.test(current.raw),
         });
       }
-      return { innerText: button.innerText, gaps };
+      return { innerText: (button as HTMLElement).innerText, gaps };
     });
     const glued = navGaps?.gaps.filter((entry) => entry.expectsSpace && entry.gap <= 0) ?? [];
     record(
@@ -799,7 +894,7 @@ async function runJourney(browser, viewport) {
       () => document.querySelectorAll('button[aria-label^="Pin "]').length > 0,
     );
     const artworkBox = await page.evaluate(() => {
-      const node = document.querySelector('[data-testid="map-artwork"]');
+      const node = document.querySelector<SVGSVGElement>('[data-testid="map-artwork"]');
       const box = node?.viewBox?.baseVal;
       return {
         tag: node?.tagName ?? '',
@@ -857,10 +952,10 @@ async function runJourney(browser, viewport) {
 
     /* ── 2c. La escena: las construcciones de pie y los puntos seguros ── */
     const scene = await page.evaluate(() => {
-      const svg = document.querySelector('[data-testid="map-artwork"]');
+      const svg = document.querySelector<SVGSVGElement>('[data-testid="map-artwork"]');
       if (!svg) return null;
       const group = svg.querySelector('[data-volume="bldg-2k-0"]');
-      const paths = (name) =>
+      const paths = (name: string) =>
         [...(group?.querySelectorAll(`[data-shape="${name}"]`) ?? [])].map((node) =>
           node.getAttribute('d'),
         );
@@ -881,7 +976,8 @@ async function runJourney(browser, viewport) {
 
     const scaleAtOne = await paintedScale(page);
     const sample = ZONE_BY_ID.get('bldg-2k');
-    const volume = extrudePolygon(sample.polygon, heightFor(sample), scaleAtOne, LIGHT);
+    if (!sample) throw new Error('el catálogo no tiene la zona bldg-2k');
+    const volume = extrudePolygon(sample.polygon ?? [], heightFor(sample), scaleAtOne, LIGHT);
     const expectedVolumes = ZONES.filter((zone) => zone.kind === 'building').reduce(
       (total, zone) => total + (zone.fragments?.length ?? 1),
       0,
@@ -936,7 +1032,8 @@ async function runJourney(browser, viewport) {
     // La pared del edificio más pequeño: si el edificio más chiquito no
     // tiene pared, el campus entero se aplana contra el plano.
     const smallestBuilding = ZONES.filter((zone) => zone.kind === 'building').reduce(
-      (best, zone) => (polygonArea(zone.polygon) < polygonArea(best.polygon) ? zone : best),
+      (best, zone) =>
+        polygonArea(zone.polygon ?? []) < polygonArea(best.polygon ?? []) ? zone : best,
     );
     const wallAtOne = await visibleWall(page, smallestBuilding.id);
     record(
@@ -950,11 +1047,12 @@ async function runJourney(browser, viewport) {
     );
 
     // Los tonos del relieve: la cara, las dos paredes y el suelo que pisan.
-    const rasterAtOne = await rasterBox(page);
+    const rasterAtOne = await rasterOf(page);
     const mapBoxAtOne = await page.locator(t('map')).boundingBox();
+    if (!mapBoxAtOne) throw new Error('no se pudo medir el croquis en pantalla');
     const tones = await page.evaluate(() => {
       const style = getComputedStyle(document.documentElement);
-      const read = (name) => style.getPropertyValue(name).trim();
+      const read = (name: string) => style.getPropertyValue(name).trim();
       return {
         roof: read('--color-relief-roof'),
         side: read('--color-relief-wall-side'),
@@ -1017,6 +1115,7 @@ async function runJourney(browser, viewport) {
     const closeUpArtwork = { x: 0.25, y: 0.15 };
     const closeUpAnchor = screenOfArtwork(rasterAtOne, closeUpArtwork);
     const sizeAtOne = page.viewportSize();
+    if (!sizeAtOne) throw new Error('el navegador no dice el tamaño del viewport');
     await page.mouse.move(4, 4);
     await sleep(250);
     await takeClip('relief-1x', 21, {
@@ -1034,7 +1133,15 @@ async function runJourney(browser, viewport) {
       const center = roofCenter(zone, scaleAtOne);
       if (!center) continue;
       const landed = landedPoint(rasterAtOne, center);
-      if (!within(landed.client, mapBoxAtOne)) continue;
+      if (
+        !within(landed.client, {
+          left: mapBoxAtOne.x,
+          top: mapBoxAtOne.y,
+          width: mapBoxAtOne.width,
+          height: mapBoxAtOne.height,
+        })
+      )
+        continue;
       // El tejado tiene que resolver SU edificio y no estar en la base de
       // nadie: si no, el toque probaría la base y no el tejado.
       if (zoneAtPoint(landed.artwork, ZONES, { scale: scaleAtOne })?.id !== zone.id) continue;
@@ -1164,12 +1271,13 @@ async function runJourney(browser, viewport) {
     // croquis.
     await page.evaluate(() => window.scrollTo(0, 0));
     const zoneSpot = await page.evaluate(() => {
-      const zone = document.querySelector('[data-zone-id="bldg-2k"]');
+      const zone = document.querySelector<HTMLElement>('[data-zone-id="bldg-2k"]');
+      if (!zone) return { x: 0, y: 0 };
       const rect = zone.getBoundingClientRect();
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     });
     const pinsBeforeSwipe = await pinCount(page);
-    await swipe(page, client, zoneSpot, -180);
+    await swipe(client, zoneSpot, -180);
     const scrollAfterSwipe = await page.evaluate(() => window.scrollY);
     record(
       vp,
@@ -1302,8 +1410,12 @@ async function runJourney(browser, viewport) {
       if (!zone) return null;
       // El touch-action no se hereda: el gesto se decide por la intersección
       // del elemento con sus antepasados hasta el que desplaza la página.
-      const chain = [];
-      for (let node = zone; node && node !== document.body; node = node.parentElement) {
+      const chain: string[] = [];
+      for (
+        let node: Element | null = zone;
+        node && node !== document.body;
+        node = node.parentElement
+      ) {
         chain.push(getComputedStyle(node).touchAction);
       }
       return chain;
@@ -1459,13 +1571,14 @@ async function runJourney(browser, viewport) {
     // límites), así que el gesto de arrastre sólo existe una vez ampliado.
     const zoomBefore = await artworkTransform(page);
     const mapBox = await page.locator(t('map')).boundingBox();
+    if (!mapBox) throw new Error('no se pudo medir el croquis en pantalla');
     const cursor = {
       x: mapBox.x + mapBox.width / 2,
       y: mapBox.y + Math.min(120, mapBox.height / 2),
     };
     await page.mouse.move(cursor.x, cursor.y);
-    const rasterBefore = await rasterBox(page);
-    const layerBefore = await artworkLayerBox(page);
+    const rasterBefore = await rasterOf(page);
+    const layerBefore = await layerOf(page);
     const pinBefore = await pinSize(page);
     await page.mouse.wheel(0, -400);
     await sleep(300);
@@ -1480,8 +1593,8 @@ async function runJourney(browser, viewport) {
 
     /* ── 3b. El croquis crece con el zoom, como las zonas y los pines ── */
     const zoomScale = scaleOf(zoomAfter) / scaleOf(zoomBefore);
-    const rasterAfter = await rasterBox(page);
-    const layerAfter = await artworkLayerBox(page);
+    const rasterAfter = await rasterOf(page);
+    const layerAfter = await layerOf(page);
     const pinAfter = await pinSize(page);
     const rasterRatio = rasterAfter.box.width / rasterBefore.box.width;
     const layerRatio = layerAfter.width / layerBefore.width;
@@ -1564,20 +1677,26 @@ async function runJourney(browser, viewport) {
     //
     // La zona se busca lejos del cursor: junto al ancla del zoom casi no se
     // mueve, y un toque ahí no probaría nada.
-    const inside = (point) =>
+    const inside = (point: Spot) =>
       point.x > mapBox.x + 4 &&
       point.x < mapBox.x + mapBox.width - 4 &&
       point.y > mapBox.y + 4 &&
       point.y < mapBox.y + mapBox.height - 4;
 
-    const candidates = ZONES.map((zone) => ({
-      id: zone.id,
-      label: zone.label,
-      artwork: {
-        x: (zone.box.x + zone.box.width / 2) / MAP_IMAGE.width,
-        y: (zone.box.y + zone.box.height / 2) / MAP_IMAGE.height,
-      },
-    }))
+    const candidates = ZONES.flatMap((zone) =>
+      zone.box
+        ? [
+            {
+              id: zone.id,
+              label: zone.label,
+              artwork: {
+                x: (zone.box.x + zone.box.width / 2) / MAP_IMAGE.width,
+                y: (zone.box.y + zone.box.height / 2) / MAP_IMAGE.height,
+              },
+            },
+          ]
+        : [],
+    )
       // Dónde queda la zona con el zoom (lo dice la capa de zonas) y dónde
       // quedaba antes de acercar.
       .map((candidate) => ({
@@ -1689,8 +1808,8 @@ async function runJourney(browser, viewport) {
 
     if (freePoint) {
       const before = await artworkTransform(page);
-      const rasterPre = await rasterBox(page);
-      const layerPre = await artworkLayerBox(page);
+      const rasterPre = await rasterOf(page);
+      const layerPre = await layerOf(page);
       const pinsBefore = await pinCount(page);
       const lostBefore = await countOf(page, t('header-lost-count'));
       await page.mouse.move(freePoint.x, freePoint.y);
@@ -1699,8 +1818,8 @@ async function runJourney(browser, viewport) {
       await page.mouse.up();
       await sleep(250);
       const after = await artworkTransform(page);
-      const rasterPost = await rasterBox(page);
-      const layerPost = await artworkLayerBox(page);
+      const rasterPost = await rasterOf(page);
+      const layerPost = await layerOf(page);
       const pinsAfter = await pinCount(page);
       const lostAfter = await countOf(page, t('header-lost-count'));
       record(
@@ -1748,12 +1867,13 @@ async function runJourney(browser, viewport) {
     // A 6× la pared del edificio tiene que medir lo mismo que a 1×: si el
     // desplazamiento se midiera en unidades del plano, el tejado se iría
     // lejos de su huella y lo que se ve dejaría de ser lo que se toca.
-    const deepCursor = screenOfArtwork(await rasterBox(page), closeUpArtwork);
+    const deepCursor = screenOfArtwork(await rasterOf(page), closeUpArtwork);
     await zoomTo(page, 3, deepCursor);
     const atThree = scaleOf(await artworkTransform(page));
-    const rasterAtThree = await rasterBox(page);
+    const rasterAtThree = await rasterOf(page);
     const anchorAtThree = screenOfArtwork(rasterAtThree, closeUpArtwork);
     const size = page.viewportSize();
+    if (!size) throw new Error('el navegador no dice el tamaño del viewport');
     // El ratón se aparta: su etiqueta tapa justo lo que se quiere ver.
     await page.mouse.move(4, 4);
     await sleep(250);
@@ -1810,8 +1930,11 @@ async function runJourney(browser, viewport) {
     );
 
     const dragSpot = await page.evaluate(() => {
-      const map = document.querySelector('[data-testid="map"]').getBoundingClientRect();
-      for (const zone of document.querySelectorAll('[data-zone-id]')) {
+      const map = document
+        .querySelector<HTMLElement>('[data-testid="map"]')
+        ?.getBoundingClientRect();
+      if (!map) return null;
+      for (const zone of document.querySelectorAll<HTMLElement>('[data-zone-id]')) {
         const rect = zone.getBoundingClientRect();
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
@@ -1828,7 +1951,7 @@ async function runJourney(browser, viewport) {
       return null;
     });
     const beforeDrag = translationOf(await artworkTransform(page));
-    if (dragSpot) await swipe(page, client, dragSpot, -140);
+    if (dragSpot) await swipe(client, dragSpot, -140);
     const afterDrag = translationOf(await artworkTransform(page));
     record(
       vp,
@@ -1923,15 +2046,17 @@ async function runJourney(browser, viewport) {
     // traga la de al lado), y sólo serán las formas de verdad cuando el
     // croquis se dibuje en SVG.
     const fragmentZone = ZONE_BY_ID.get('bldg-2h');
-    const wing = fragmentZone.fragments.at(-1);
-    const wingPoint = polygonCentroid(wing);
-    const wingResolved = zoneAtPoint(wingPoint, ZONES);
-    const outsidePrimary = !pointInPolygon(wingPoint, fragmentZone.polygon);
+    const wing = fragmentZone?.fragments?.at(-1);
+    const wingPoint = wing ? polygonCentroid(wing) : null;
+    const wingResolved = wingPoint ? zoneAtPoint(wingPoint, ZONES) : null;
+    const outsidePrimary = wingPoint
+      ? !pointInPolygon(wingPoint, fragmentZone?.polygon ?? [])
+      : false;
     record(
       vp,
       'un toque en un fragmento resuelve la construcción partida',
-      outsidePrimary && wingResolved?.id === fragmentZone.id,
-      `el toque en el ala de "${fragmentZone.id}" (fuera de su forma principal) lo resuelve`,
+      outsidePrimary && wingResolved?.id === fragmentZone?.id,
+      `el toque en el ala de "${fragmentZone?.id}" (fuera de su forma principal) lo resuelve`,
       wingResolved ? `${wingResolved.id} · ${wingResolved.label}` : 'nada',
     );
 
@@ -1939,7 +2064,8 @@ async function runJourney(browser, viewport) {
     // El botón del DOM es sólo un área de toque de 44 px y se solapa con el
     // de sus vecinos: el ala de 2H queda debajo del botón de otro. El toque
     // lo resuelve la geometría, así que aquí tiene que salir 2H.
-    const wingScreen = screenOfArtwork(await rasterBox(page), {
+    if (!wingPoint) throw new Error('el catálogo no tiene el ala de bldg-2h');
+    const wingScreen = screenOfArtwork(await rasterOf(page), {
       x: wingPoint.x / MAP_IMAGE.width,
       y: wingPoint.y / MAP_IMAGE.height,
     });
@@ -1955,8 +2081,8 @@ async function runJourney(browser, viewport) {
     record(
       vp,
       'un toque en el ala de 2H abre el diálogo de 2H (no el de la vecina)',
-      wingDialog.includes(fragmentZone.label),
-      `el diálogo dice "${fragmentZone.label}"`,
+      wingDialog.includes(fragmentZone?.label ?? ''),
+      `el diálogo dice "${fragmentZone?.label ?? ''}"`,
       wingDialog.slice(0, 140) ||
         `no se abrió ningún diálogo (toque en ${wingScreen.x.toFixed(0)}, ${wingScreen.y.toFixed(0)})`,
     );
@@ -2090,7 +2216,8 @@ async function runJourney(browser, viewport) {
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       let node = walker.nextNode();
       while (node) {
-        if (node.nodeValue.includes(key)) hits.push(node.nodeValue.trim());
+        const text = node.nodeValue ?? '';
+        if (text.includes(key)) hits.push(text.trim());
         node = walker.nextNode();
       }
       return hits;
@@ -2239,9 +2366,10 @@ async function runJourney(browser, viewport) {
     await page.getByRole('button', { name: /^Mis reportes/ }).click();
     await page.locator(t('my-reports')).waitFor({ state: 'visible' });
     const reportId = await page.evaluate((item) => {
-      const cards = [...document.querySelectorAll('[data-testid^="my-report-"]')];
-      const card = cards.find((node) => node.textContent.includes(item));
-      return card ? card.getAttribute('data-testid').replace('my-report-', '') : null;
+      const cards = [...document.querySelectorAll<HTMLElement>('[data-testid^="my-report-"]')];
+      const card = cards.find((node) => node.textContent?.includes(item));
+      const testid = card?.getAttribute('data-testid');
+      return testid ? testid.replace('my-report-', '') : null;
     }, LOST_ITEM);
     record(
       vp,
@@ -2271,7 +2399,7 @@ async function runJourney(browser, viewport) {
     // innerText y no textContent: el textContent pega la clave al texto que la
     // sigue ("483921Copiar clave") y el limite de palabra la pierde.
     const seedKey = await page.evaluate(() => {
-      const card = document.querySelector('[data-testid="my-report-pin-1"]');
+      const card = document.querySelector<HTMLElement>('[data-testid="my-report-pin-1"]');
       if (!card) return null;
       const match = card.innerText.match(/(?<!\d)\d{6}(?!\d)/);
       return match ? match[0] : null;
@@ -2288,7 +2416,7 @@ async function runJourney(browser, viewport) {
       const hits = [];
       let node = walker.nextNode();
       while (node) {
-        const text = node.nodeValue.trim();
+        const text = (node.nodeValue ?? '').trim();
         if (/^(open|pending_claim|in_custody|resolved|expired|archived)$/.test(text))
           hits.push(text);
         node = walker.nextNode();
@@ -2417,10 +2545,13 @@ async function runJourney(browser, viewport) {
         page.locator(t('release-key-submit')),
         'Confirmar entrega',
       );
-      const unlockButton = await page.locator(t('release-key-submit')).evaluate((node) => ({
-        label: node.getAttribute('aria-label'),
-        position: getComputedStyle(node.parentElement).position,
-      }));
+      const unlockButton = await page.locator(t('release-key-submit')).evaluate((node) => {
+        const element = node as HTMLElement;
+        return {
+          label: element.getAttribute('aria-label'),
+          position: getComputedStyle(element.parentElement as HTMLElement).position,
+        };
+      });
       record(
         vp,
         'el botón de la clave tiene un nombre accesible (no sólo el glifo)',
@@ -2678,9 +2809,12 @@ async function runJourney(browser, viewport) {
     // se dibuja como UN marcador con la cuenta, y la lista de sus reportes
     // se abre y se recorre con el ratón.
     const clusterZone = ZONE_BY_ID.get('bldg-a');
-    const expected = artworkToPercent(polygonCentroid(clusterZone.polygon), MAP_IMAGE);
+    if (!clusterZone?.polygon) throw new Error('el catálogo no tiene la zona bldg-a');
+    const centroid = polygonCentroid(clusterZone.polygon);
+    if (!centroid) throw new Error('la zona bldg-a no tiene centro');
+    const expected = artworkToPercent(centroid, MAP_IMAGE);
 
-    const publishInClusterZone = async (kind) => {
+    const publishInClusterZone = async (kind: 'lost' | 'found') => {
       await page.locator(t('picker-input')).click();
       await page.locator(t('picker-option-bldg-a')).click();
       await page.locator('[role="dialog"]').waitFor({ state: 'visible' });
@@ -2913,7 +3047,7 @@ async function runJourney(browser, viewport) {
 
 /* ──────────────────────────────── Informe ──────────────────────────────── */
 
-function printReport() {
+function printReport(): void {
   const line = '─'.repeat(78);
   console.log(`\n${line}\nSMOKE JOURNEY — Objetos Perdidos ITM\n${line}`);
   console.log(`app: ${APP_URL}`);
@@ -2939,13 +3073,13 @@ function printReport() {
   console.log(`ERRORES DE CONSOLA: ${consoleErrors.length}`);
   for (const entry of consoleErrors) console.log(`  ${entry}`);
   console.log(`HALLAZGOS SOBRE LA APP: ${findings.length}`);
-  for (const item of findings) console.log(`  [${item.where}] ${item.what}`);
+  for (const item of findings) console.log(`  ${item}`);
   console.log(line);
 }
 
 /* ─────────────────────────────────── Main ─────────────────────────────────── */
 
-async function main() {
+async function main(): Promise<void> {
   await mkdir(SHOTS_DIR, { recursive: true });
 
   const server = await ensureServer(APP_URL);

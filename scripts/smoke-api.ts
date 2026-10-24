@@ -29,13 +29,13 @@
  *   vp exec node scripts/smoke-api.mjs
  */
 
-import { chromium } from 'playwright-core';
+import { chromium, type BrowserContext, type Page } from 'playwright-core';
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Pool } from 'pg';
-import { servesOurApp } from './smoke-journey.mjs';
+import { servesOurApp } from './smoke-journey.ts';
 
 /* ─────────────────────────── Configuración ─────────────────────────── */
 
@@ -68,20 +68,30 @@ const FINDER_BLIND = 'HP Pavilion gris, tapa verde, sticker de React y una mochi
 
 /* ──────────────────────────── Utilidades ──────────────────────────── */
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const t = (id) => `[data-testid="${id}"]`;
+const t = (id: string) => `[data-testid="${id}"]`;
+
+/** Lo que dice un comando que se acaba de correr. */
+interface CommandResult {
+  code: number | null;
+  output: string;
+}
 
 /** Corre un comando y devuelve su código y su salida. */
-function run(command, args, options = {}) {
+function run(
+  command: string,
+  args: string[],
+  options: Parameters<typeof spawn>[2] = {},
+): Promise<CommandResult> {
   return new Promise((resolve) => {
     const child = spawn(command, args, { cwd: ROOT, ...options });
     let output = '';
-    child.stdout?.on('data', (chunk) => {
-      output += chunk;
+    child.stdout?.on('data', (chunk: Buffer) => {
+      output += chunk.toString();
     });
-    child.stderr?.on('data', (chunk) => {
-      output += chunk;
+    child.stderr?.on('data', (chunk: Buffer) => {
+      output += chunk.toString();
     });
     child.on('error', (error) => resolve({ code: 1, output: String(error) }));
     child.on('close', (code) => resolve({ code, output }));
@@ -89,7 +99,7 @@ function run(command, args, options = {}) {
 }
 
 /** ¿Contesta el API en esa URL? */
-async function isUp(url) {
+async function isUp(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(2500) });
     return response.status < 500;
@@ -107,9 +117,9 @@ async function isUp(url) {
  * contenedor, así que la base de datos del desarrollador y el servicio de CI
  * se tratan igual.
  */
-let pool = null;
+let pool: Pool | null = null;
 
-function db() {
+function db(): Pool {
   if (!pool) {
     pool = new Pool({ connectionString: DATABASE_URL, max: 2, connectionTimeoutMillis: 5000 });
     // Un cliente ocioso que muere no debe tumbar el proceso.
@@ -119,7 +129,7 @@ function db() {
 }
 
 /** Espera a que la base de datos acepte conexiones. */
-async function waitForDatabase(timeout = BOOT_TIMEOUT_MS) {
+async function waitForDatabase(timeout = BOOT_TIMEOUT_MS): Promise<boolean> {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     try {
@@ -141,7 +151,7 @@ async function waitForDatabase(timeout = BOOT_TIMEOUT_MS) {
  * con su nombre completo y se etiqueta en local: el `docker-compose.yml` del
  * repositorio no se toca.
  */
-async function ensureImage() {
+async function ensureImage(): Promise<void> {
   const full = 'docker.io/library/postgres:16';
   const exists = await run('podman', ['image', 'exists', full]);
   if (exists.code !== 0) {
@@ -154,17 +164,17 @@ async function ensureImage() {
 }
 
 /** El nombre del contenedor de la base de datos, el que dejó Compose. */
-async function dbContainerName() {
+async function dbContainerName(): Promise<string | null> {
   const listed = await run('podman', ['ps', '--format', '{{.Names}}']);
   const names = listed.output
     .split('\n')
-    .map((name) => name.trim())
+    .map((name: string) => name.trim())
     .filter(Boolean);
   return names.find((name) => name.endsWith('db_1') || name.endsWith('-db-1')) ?? null;
 }
 
 /** Levanta la base de datos y espera a que acepte conexiones. */
-async function startDatabase() {
+async function startDatabase(): Promise<string> {
   const up = await run('podman', ['compose', 'up', '-d', 'db']);
   if (up.code !== 0) {
     throw new Error(`La base de datos nolevantó:\n${up.output}`);
@@ -191,7 +201,7 @@ async function startDatabase() {
 }
 
 /** Aplica las migraciones sobre la base de datos real. */
-async function runMigrations() {
+async function runMigrations(): Promise<string> {
   const result = await run(VP, ['exec', 'node', 'api/src/db/migrate.ts'], {
     env: { ...process.env, DATABASE_URL },
   });
@@ -210,13 +220,15 @@ async function runMigrations() {
  * el viaje vacía sus propias tablas y nada más, así que la segunda corrida
  * empieza desde el mismo estado.
  */
-async function resetDatabase() {
+async function resetDatabase(): Promise<void> {
   try {
     await db().query(
       'truncate reports, claim_requests, report_matches, custody_events, strikes, bans, audit_log, notifications, sessions, magic_links, users restart identity cascade;',
     );
   } catch (error) {
-    throw new Error(`No se pudo limpiar la base de datos: ${error.message}`);
+    throw new Error(
+      `No se pudo limpiar la base de datos: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -227,7 +239,7 @@ async function resetDatabase() {
  * web reenvía la ruta al API, que es quien acuña la cookie de sesión.
  */
 function startApi() {
-  const log = [];
+  const log: string[] = [];
   const child = spawn(VP, ['exec', 'node', 'api/src/server.ts'], {
     cwd: ROOT,
     detached: true,
@@ -243,7 +255,7 @@ function startApi() {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  const collect = (chunk) => {
+  const collect = (chunk: Buffer) => {
     const text = String(chunk);
     log.push(text);
     if (log.length > 400) log.shift();
@@ -273,7 +285,7 @@ function startApi() {
 
 /** Arranca el servidor de la web con el API configurado. */
 function startWeb() {
-  const log = [];
+  const log: string[] = [];
   const port = new URL(APP_URL).port || '5173';
   // `--strictPort`: si el puerto está ocupado, el servidor muere en vez de
   // mudarse a otro y dejar la prueba conduciendo la app equivocada.
@@ -284,7 +296,7 @@ function startWeb() {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  const collect = (chunk) => {
+  const collect = (chunk: Buffer) => {
     const text = String(chunk);
     log.push(text);
     if (log.length > 400) log.shift();
@@ -314,21 +326,26 @@ function startWeb() {
 
 /* ──────────────────────────── Aserciones ──────────────────────────── */
 
-const results = [];
-const consoleErrors = [];
-const consoleMessages = [];
+const results: { name: string; pass: boolean; expected: string; observed: string }[] = [];
+const consoleErrors: string[] = [];
+const consoleMessages: string[] = [];
 // La app pregunta quién es al arrancar: un 401 ahí es la respuesta, no un
 // fallo. La prueba los cuenta aparte y verifica que no haya otro 401.
-const sessionProbes = [];
-const unauthorized = [];
+const sessionProbes: string[] = [];
+const unauthorized: string[] = [];
 
-function record(name, pass, expected, observed) {
+function record(name: string, pass: unknown, expected: string, observed: unknown): boolean {
   results.push({ name, pass: Boolean(pass), expected, observed: String(observed) });
   return Boolean(pass);
 }
 
 /** Espera a que un texto aparezca en un elemento. */
-async function waitForText(page, selector, needle, timeout = STEP_TIMEOUT_MS) {
+async function waitForText(
+  page: Page,
+  selector: string,
+  needle: string,
+  timeout = STEP_TIMEOUT_MS,
+): Promise<string | null> {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     const text = await page
@@ -343,7 +360,7 @@ async function waitForText(page, selector, needle, timeout = STEP_TIMEOUT_MS) {
 }
 
 /** El texto de un elemento, o una cadena vacía. */
-async function textOf(page, selector) {
+async function textOf(page: Page, selector: string): Promise<string> {
   return page
     .locator(selector)
     .first()
@@ -352,17 +369,23 @@ async function textOf(page, selector) {
 }
 
 /** Los pines que hay en el mapa. */
-const pinCount = (page) => page.locator('button[aria-label^="Pin "]').count();
+const pinCount = (page: Page): Promise<number> =>
+  page.locator('button[aria-label^="Pin "]').count();
 
 /** Los grupos del mapa: un marcador por zona con más de un reporte. */
-const clusterCount = (page) => page.locator('button[data-testid^="pin-cluster-marker-"]').count();
+const clusterCount = (page: Page): Promise<number> =>
+  page.locator('button[data-testid^="pin-cluster-marker-"]').count();
 
 /** Los marcadores del mapa: los pines sueltos y los grupos. */
-const markerCount = (page) =>
+const markerCount = (page: Page): Promise<number> =>
   page.locator('button[aria-label^="Pin "], button[data-testid^="pin-cluster-marker-"]').count();
 
 /** Espera a que el mapa tenga ese número de grupos (un grupo por zona con varios reportes). */
-async function waitForClusters(page, expected, timeout = STEP_TIMEOUT_MS) {
+async function waitForClusters(
+  page: Page,
+  expected: number,
+  timeout = STEP_TIMEOUT_MS,
+): Promise<number> {
   const deadline = Date.now() + timeout;
   let seen = 0;
   while (Date.now() < deadline) {
@@ -374,7 +397,11 @@ async function waitForClusters(page, expected, timeout = STEP_TIMEOUT_MS) {
 }
 
 /** Espera a que el mapa tenga ese número de marcadores. */
-async function waitForMarkers(page, expected, timeout = STEP_TIMEOUT_MS) {
+async function waitForMarkers(
+  page: Page,
+  expected: number,
+  timeout = STEP_TIMEOUT_MS,
+): Promise<number> {
   const deadline = Date.now() + timeout;
   let seen = 0;
   while (Date.now() < deadline) {
@@ -386,7 +413,7 @@ async function waitForMarkers(page, expected, timeout = STEP_TIMEOUT_MS) {
 }
 
 /** El número del encabezado: los perdidos y los encontrados. */
-async function headerCounts(page) {
+async function headerCounts(page: Page): Promise<{ lost: string; found: string }> {
   const lost = await textOf(page, t('header-lost-count'));
   const found = await textOf(page, t('header-found-count'));
   return { lost: lost.trim(), found: found.trim() };
@@ -401,7 +428,11 @@ async function headerCounts(page) {
  * el token, y el enlace apunta a la app web. La salida del proceso llega con
  * un pelo de retraso, así que la prueba la espera.
  */
-async function magicTokenFrom(log, email, timeout = 15_000) {
+async function magicTokenFrom(
+  log: string[],
+  email: string,
+  timeout = 15_000,
+): Promise<string | null> {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
     const text = log.join('');
@@ -422,7 +453,12 @@ async function magicTokenFrom(log, email, timeout = 15_000) {
  * el navegador. La web reenvía la ruta al API, el API acuña la cookie y
  * manda al estudiante de vuelta a la web.
  */
-async function signIn(context, apiLog, email, label) {
+async function signIn(
+  context: BrowserContext,
+  apiLog: string[],
+  email: string,
+  label: string,
+): Promise<Page> {
   const page = await context.newPage();
   page.setDefaultTimeout(STEP_TIMEOUT_MS);
   page.on('console', (message) => {
@@ -475,14 +511,29 @@ async function signIn(context, apiLog, email, label) {
     `${label}: el enlace mágico abre la sesión`,
     Boolean(opened),
     'la app web entra con la sesión del API',
-    opened ? 'el encabezado con la sesión' : await page.url(),
+    opened ? 'el encabezado con la sesión' : page.url(),
   );
 
   return page;
 }
 
 /** Publica un reporte con el formulario de la app. */
-async function publishReport(page, { kind, item, description, blindDetail, zoneId }) {
+async function publishReport(
+  page: Page,
+  {
+    kind,
+    item,
+    description,
+    blindDetail,
+    zoneId,
+  }: {
+    kind: 'lost' | 'found';
+    item: string;
+    description: string;
+    blindDetail?: string;
+    zoneId: string;
+  },
+): Promise<void> {
   await page.locator(t('picker-input')).click();
   await page.locator(t(`picker-option-${zoneId}`)).click();
   await page.locator(t('picker-input')).blur();
@@ -498,14 +549,16 @@ async function publishReport(page, { kind, item, description, blindDetail, zoneI
 }
 
 /** Lo que el API tiene en la base de datos, como texto. */
-async function query(sql) {
+async function query(sql: string): Promise<string> {
   const result = await db().query(sql);
-  return result.rows.map((row) => Object.values(row).join(' | ')).join('\n');
+  return result.rows
+    .map((row: Record<string, unknown>) => Object.values(row).join(' | '))
+    .join('\n');
 }
 
 /* ───────────────────────────────── Main ───────────────────────────────── */
 
-async function main() {
+async function main(): Promise<void> {
   await mkdir(SHOTS_DIR, { recursive: true });
 
   // El puerto del API: si ya contesta algo, no es el API de esta prueba y la
@@ -869,7 +922,7 @@ async function main() {
   console.log('\nRESULTADO: PASS');
 }
 
-function printReport() {
+function printReport(): void {
   const line = '─'.repeat(72);
   const failed = results.filter((entry) => !entry.pass);
   console.log(`\n${line}`);

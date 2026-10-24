@@ -14,31 +14,45 @@ import {
   listZones,
   logout,
   requestMagicLink,
-} from './api.js';
+} from './api.ts';
 
 const BASE = 'http://api.test';
 
 /** A fetch answer with the body the API would send. */
-function answer(status, payload) {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    text: async () => (payload === undefined ? '' : JSON.stringify(payload)),
-  };
+function answer(status: number, payload?: unknown): Response {
+  return new Response(payload === undefined ? '' : JSON.stringify(payload), { status });
+}
+
+/** The error the client throws, whatever it is. */
+async function failureFrom(promise: Promise<unknown>): Promise<ApiError> {
+  try {
+    await promise;
+  } catch (error) {
+    if (error instanceof ApiError) return error;
+    throw error;
+  }
+  throw new Error('the request should have failed');
 }
 
 /** The error the client throws when the API answers with a status. */
-async function failureOf(status, payload = { error: 'boom' }) {
+async function failureOf(status: number, payload: unknown = { error: 'boom' }): Promise<ApiError> {
   vi.mocked(globalThis.fetch).mockResolvedValue(answer(status, payload));
-  return getMe().then(
-    () => null,
-    (error) => error,
-  );
+  return failureFrom(getMe());
+}
+
+/** The URL the client asked for, whatever shape the call had. */
+function urlOf(input: string | Request | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
 }
 
 /** The call the client made, as the mock recorded it. */
-function lastCall() {
-  return vi.mocked(globalThis.fetch).mock.calls.at(-1);
+function lastCall(): [string, RequestInit] {
+  const call = vi.mocked(globalThis.fetch).mock.calls.at(-1);
+  if (!call) throw new Error('the client did not call fetch');
+  const [input, init] = call;
+  return [urlOf(input), init ?? {}];
 }
 
 describe('the API client', () => {
@@ -110,10 +124,7 @@ describe('the API client', () => {
 
     it('reads a network failure as offline', async () => {
       vi.mocked(globalThis.fetch).mockRejectedValue(new TypeError('Failed to fetch'));
-      const error = await getMe().then(
-        () => null,
-        (failure) => failure,
-      );
+      const error = await failureFrom(getMe());
       expect(error).toBeInstanceOf(ApiError);
       expect(error.kind).toBe('offline');
       expect(error.status).toBe(0);
@@ -135,7 +146,14 @@ describe('the API client', () => {
     });
 
     it('sends the body as JSON', async () => {
-      const payload = { kind: 'lost', title: 'Mochila verde' };
+      const payload: Parameters<typeof createReport>[0] = {
+        kind: 'lost',
+        title: 'Mochila verde',
+        description: 'La dejé en el pasillo',
+        zoneId: 'bldg-a',
+        mapX: 10,
+        mapY: 20,
+      };
       await createReport(payload);
       const [url, options] = lastCall();
       expect(url).toBe(`${BASE}/reports`);
